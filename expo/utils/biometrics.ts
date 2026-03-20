@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 export type BiometricType = 'face' | 'fingerprint' | 'none';
 
@@ -10,7 +11,6 @@ export interface AuthResult {
 export async function getSupportedBiometricType(): Promise<BiometricType> {
   if (Platform.OS === 'web') return 'none';
   try {
-    const LocalAuthentication = await import('expo-local-authentication');
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
     if (!hasHardware) return 'none';
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
@@ -30,7 +30,6 @@ export async function authenticateWithBiometrics(reason: string): Promise<AuthRe
     return { success: true };
   }
   try {
-    const LocalAuthentication = await import('expo-local-authentication');
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
