@@ -5,34 +5,44 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { AlertTriangle, Copy, X, Eye, EyeOff, Check } from 'lucide-react-native';
+import { AlertTriangle, Copy, X, Eye, EyeOff, Check, AlertCircle, Fingerprint, ScanFace } from 'lucide-react-native';
 import { useWallet } from '@/context/wallet';
 import { Colors } from '@/constants/colors';
+import { authenticateWithBiometrics, getSupportedBiometricType, BiometricType } from '@/utils/biometrics';
 
 export default function SeedPhraseScreen() {
   const { mnemonic } = useWallet();
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [biometricType, setBiometricType] = useState<BiometricType>('none');
+
+  React.useEffect(() => {
+    void getSupportedBiometricType().then(setBiometricType);
+  }, []);
 
   const words = mnemonic?.split(' ') ?? [];
 
-  const handleReveal = () => {
-    if (!revealed) {
-      Alert.alert(
-        'Security Warning',
-        'Make sure no one can see your screen. Your seed phrase gives complete access to your funds.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Reveal', onPress: () => setRevealed(true) },
-        ]
-      );
-    } else {
+  const handleReveal = async () => {
+    if (revealed) {
       setRevealed(false);
+      setAuthError(null);
+      return;
+    }
+    setIsAuthenticating(true);
+    setAuthError(null);
+    const result = await authenticateWithBiometrics('Verify your identity to view the seed phrase');
+    setIsAuthenticating(false);
+    if (result.success) {
+      setRevealed(true);
+    } else {
+      setAuthError('Authentication failed. Try again.');
     }
   };
 
@@ -42,6 +52,14 @@ export default function SeedPhraseScreen() {
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
   };
+
+  const revealLabel = revealed
+    ? 'Hide Seed Phrase'
+    : biometricType === 'face'
+    ? 'Reveal with Face ID'
+    : biometricType === 'fingerprint'
+    ? 'Reveal with Touch ID'
+    : 'Reveal Seed Phrase';
 
   return (
     <View style={styles.container}>
@@ -73,23 +91,39 @@ export default function SeedPhraseScreen() {
           </View>
 
           <TouchableOpacity
-            style={styles.revealBtn}
+            style={[styles.revealBtn, revealed && styles.revealBtnActive]}
             onPress={handleReveal}
             activeOpacity={0.8}
+            disabled={isAuthenticating}
             testID="reveal-seed-btn"
           >
-            {revealed ? (
+            {isAuthenticating ? (
+              <ActivityIndicator size="small" color={Colors.bitcoin} />
+            ) : revealed ? (
               <>
                 <EyeOff size={16} color={Colors.textSecondary} />
-                <Text style={styles.revealBtnText}>Hide Seed Phrase</Text>
+                <Text style={styles.revealBtnText}>{revealLabel}</Text>
               </>
             ) : (
               <>
-                <Eye size={16} color={Colors.bitcoin} />
-                <Text style={[styles.revealBtnText, { color: Colors.bitcoin }]}>Reveal Seed Phrase</Text>
+                {biometricType === 'face' ? (
+                  <ScanFace size={16} color={Colors.bitcoin} />
+                ) : biometricType === 'fingerprint' ? (
+                  <Fingerprint size={16} color={Colors.bitcoin} />
+                ) : (
+                  <Eye size={16} color={Colors.bitcoin} />
+                )}
+                <Text style={[styles.revealBtnText, { color: Colors.bitcoin }]}>{revealLabel}</Text>
               </>
             )}
           </TouchableOpacity>
+
+          {authError ? (
+            <View style={styles.authErrorCard}>
+              <AlertCircle size={15} color={Colors.error} />
+              <Text style={styles.authErrorText}>{authError}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.wordsGrid}>
             {words.map((word, i) => (
@@ -196,7 +230,26 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     paddingVertical: 15,
   },
+  revealBtnActive: {
+    borderColor: Colors.border,
+  },
   revealBtnText: { fontSize: 15, fontWeight: '700', color: Colors.textSecondary },
+  authErrorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,59,48,0.08)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.2)',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  authErrorText: {
+    flex: 1,
+    fontSize: 13,
+    color: Colors.error,
+  },
   wordsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

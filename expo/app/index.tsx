@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -15,13 +15,14 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AlertCircle, ArrowLeft } from 'lucide-react-native';
+import { AlertCircle, ArrowLeft, Fingerprint, ScanFace, ShieldCheck } from 'lucide-react-native';
 import { useWallet } from '@/context/wallet';
 import { Colors } from '@/constants/colors';
+import { authenticateWithBiometrics, getSupportedBiometricType, BiometricType } from '@/utils/biometrics';
 
 const { height } = Dimensions.get('window');
 
-type ScreenView = 'welcome' | 'import';
+type ScreenView = 'welcome' | 'import' | 'locked';
 
 export default function WelcomeScreen() {
   const {
@@ -36,16 +37,29 @@ export default function WelcomeScreen() {
 
   const [view, setView] = useState<ScreenView>('welcome');
   const [seedInput, setSeedInput] = useState('');
+  const [biometricType, setBiometricType] = useState<BiometricType>('none');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
   const pulseOpacity = useRef(new Animated.Value(0.4)).current;
+  const lockFadeAnim = useRef(new Animated.Value(0)).current;
+  const lockScaleAnim = useRef(new Animated.Value(0.9)).current;
+
+  useEffect(() => {
+    void getSupportedBiometricType().then(setBiometricType);
+  }, []);
 
   useEffect(() => {
     if (initialized && hasWallet) {
-      router.replace('/wallet');
+      setView('locked');
+      Animated.parallel([
+        Animated.timing(lockFadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.spring(lockScaleAnim, { toValue: 1, useNativeDriver: true, speed: 8, bounciness: 6 }),
+      ]).start();
     }
-  }, [initialized, hasWallet]);
+  }, [initialized, hasWallet, lockFadeAnim, lockScaleAnim]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -68,10 +82,113 @@ export default function WelcomeScreen() {
     ).start();
   }, [fadeAnim, pulseScale, pulseOpacity]);
 
+  const handleUnlock = useCallback(async () => {
+    setIsAuthenticating(true);
+    setAuthError(null);
+    const result = await authenticateWithBiometrics('Unlock your Bitcoin Wallet');
+    setIsAuthenticating(false);
+    if (result.success) {
+      router.replace('/wallet');
+    } else {
+      setAuthError('Authentication failed. Try again.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'locked') {
+      void handleUnlock();
+    }
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!initialized) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.bitcoin} />
+      </View>
+    );
+  }
+
+  if (view === 'locked') {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={['#0D0A0A', '#0A0A0F', '#090D0D']}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        />
+        <SafeAreaView style={styles.safeArea}>
+          <Animated.View
+            style={[
+              styles.lockContent,
+              { opacity: lockFadeAnim, transform: [{ scale: lockScaleAnim }] },
+            ]}
+          >
+            <View style={styles.lockIconWrapper}>
+              <Animated.View
+                style={[
+                  styles.lockGlow,
+                  { transform: [{ scale: pulseScale }], opacity: pulseOpacity },
+                ]}
+              />
+              <View style={styles.lockCircle}>
+                <ShieldCheck size={44} color={Colors.bitcoin} strokeWidth={1.5} />
+              </View>
+            </View>
+
+            <View style={styles.lockTextSection}>
+              <Text style={styles.lockTitle}>Bitcoin Wallet</Text>
+              <Text style={styles.lockSubtitle}>
+                {biometricType === 'face'
+                  ? 'Use Face ID or passcode to unlock'
+                  : biometricType === 'fingerprint'
+                  ? 'Use Touch ID or passcode to unlock'
+                  : 'Use your passcode to unlock'}
+              </Text>
+            </View>
+
+            {authError ? (
+              <View style={styles.authErrorCard}>
+                <AlertCircle size={15} color={Colors.error} />
+                <Text style={styles.authErrorText}>{authError}</Text>
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.unlockBtn}
+              onPress={handleUnlock}
+              activeOpacity={0.85}
+              disabled={isAuthenticating}
+              testID="unlock-btn"
+            >
+              <LinearGradient
+                colors={['#F7931A', '#DE7C0E']}
+                style={styles.unlockBtnGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                {isAuthenticating ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <View style={styles.unlockBtnInner}>
+                    {biometricType === 'face' ? (
+                      <ScanFace size={20} color="#FFF" />
+                    ) : biometricType === 'fingerprint' ? (
+                      <Fingerprint size={20} color="#FFF" />
+                    ) : null}
+                    <Text style={styles.unlockBtnText}>
+                      {biometricType === 'face'
+                        ? 'Unlock with Face ID'
+                        : biometricType === 'fingerprint'
+                        ? 'Unlock with Touch ID'
+                        : 'Unlock with Passcode'}
+                    </Text>
+                  </View>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+        </SafeAreaView>
       </View>
     );
   }
@@ -472,5 +589,96 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  lockContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 32,
+  },
+  lockIconWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 180,
+    height: 180,
+  },
+  lockGlow: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: Colors.bitcoin,
+    opacity: 0.1,
+  },
+  lockCircle: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: Colors.surface,
+    borderWidth: 2,
+    borderColor: Colors.bitcoin,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: Colors.bitcoin,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  lockTextSection: {
+    alignItems: 'center',
+    gap: 10,
+  },
+  lockTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: Colors.text,
+    letterSpacing: -0.6,
+  },
+  lockSubtitle: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  authErrorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,59,48,0.08)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.2)',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    width: '100%',
+  },
+  authErrorText: {
+    flex: 1,
+    fontSize: 13,
+    color: Colors.error,
+  },
+  unlockBtn: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  unlockBtnGradient: {
+    paddingVertical: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 56,
+  },
+  unlockBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  unlockBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
 });
