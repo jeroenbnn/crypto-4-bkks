@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'https://cpkkohlgptamkunryjwx.supabase.co';
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNwa2tvaGxncHRhbWt1bnJ5and4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNDkwNjUsImV4cCI6MjA4OTYyNTA2NX0.uChVdV-LxM3AxXltrE-YviwRFMxZbMKpCcCN5lySiwQ';
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('[Supabase] Missing environment variables. Database sync disabled.');
