@@ -1,0 +1,16 @@
+export const Colors = {
+  background: '#0A0A0F',
+  surface: '#111118',
+  surfaceElevated: '#18181F',
+  border: '#1E1E2E',
+  borderLight: '#252535',
+  bitcoin: '#F7931A',
+  bitcoinDark: '#D4780E',
+  bitcoinLight: '#FFA942',
+  text: '#FFFFFF',
+  textSecondary: '#9A9AA8',
+  textTertiary: '#48485A',
+  success: '#34C759',
+  error: '#FF3B30',
+  warning: '#FF9F0A',
+} as const;

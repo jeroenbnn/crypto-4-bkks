@@ -1,0 +1,9 @@
+{
+  "apps": [
+    {
+      "name": "Bitcoin Wallet",
+      "path": "expo",
+      "framework": "react-native"
+    }
+  ]
+}
