@@ -33,7 +33,7 @@ export async function upsertAddresses(walletId: string, addresses: { address: st
   const { error } = await supabase
     .from('btc_addresses')
     .upsert(rows, { onConflict: 'address', ignoreDuplicates: true });
-  if (error) console.error('[Supabase] upsertAddresses error:', error.message);
+  if (error) console.error('[Supabase] upsertAddresses error:', error.message, '\n→ Fix: run supabase-setup.sql in your Supabase SQL Editor to add the required RLS policies.');
   else console.log(`[Supabase] Synced ${rows.length} addresses`);
 }
 
