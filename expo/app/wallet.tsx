@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,17 +13,42 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useQuery, useQueries } from '@tanstack/react-query';
-import { Settings, Plus, ChevronRight, ArrowRightLeft, Eye, EyeOff, TrendingUp, Globe } from 'lucide-react-native';
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
+import {
+  Settings,
+  Plus,
+  ChevronRight,
+  ArrowRightLeft,
+  Eye,
+  EyeOff,
+  TrendingUp,
+  Globe,
+  RotateCcw,
+} from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
 import { useLanguage } from '@/context/language';
 import { Colors } from '@/constants/colors';
 import { DerivedAddress } from '@/utils/bitcoin';
 import { Language } from '@/constants/i18n';
+import { fetchStoredBalances, updateAddressBalances } from '@/utils/supabase';
+import {
+  requestNotificationPermissions,
+  sendLowUnusedAddressNotification,
+} from '@/utils/notifications';
 
-interface BalanceData {
-  chain_stats: { funded_txo_sum: number; spent_txo_sum: number };
+const LOW_UNUSED_THRESHOLD = 10;
+
+interface MempoolData {
+  chain_stats: {
+    funded_txo_sum: number;
+    spent_txo_sum: number;
+  };
+}
+
+interface AddressBalance {
+  balance: number;
+  isUsed: boolean;
 }
 
 interface CoinbasePrice {
@@ -55,7 +80,8 @@ function formatBtc(val: number): string {
 
 function formatEur(val: number): string {
   if (val === 0) return '€0,00';
-  if (val >= 1000) return `€${val.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (val >= 1000)
+    return `€${val.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return `€${val.toFixed(2).replace('.', ',')}`;
 }
 
@@ -63,19 +89,34 @@ interface AddressCardProps {
   address: DerivedAddress;
   balance: number;
   isLoading: boolean;
+  isCached: boolean;
   btcEurPrice: number | null | undefined;
   activeLabel: string;
   onPress: () => void;
 }
 
-function AddressCard({ address, balance, isLoading, btcEurPrice, activeLabel, onPress }: AddressCardProps) {
+function AddressCard({
+  address,
+  balance,
+  isLoading,
+  isCached,
+  btcEurPrice,
+  activeLabel,
+  onPress,
+}: AddressCardProps) {
   const eurValue = btcEurPrice ? balance * btcEurPrice : null;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const onPressIn = useCallback(() =>
-    Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start(), [scaleAnim]);
-  const onPressOut = useCallback(() =>
-    Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }).start(), [scaleAnim]);
+  const onPressIn = useCallback(
+    () =>
+      Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start(),
+    [scaleAnim]
+  );
+  const onPressOut = useCallback(
+    () =>
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }).start(),
+    [scaleAnim]
+  );
 
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
@@ -95,6 +136,11 @@ function AddressCard({ address, balance, isLoading, btcEurPrice, activeLabel, on
             {balance > 0 && (
               <View style={styles.activeBadge}>
                 <Text style={styles.activeBadgeText}>{activeLabel}</Text>
+              </View>
+            )}
+            {isCached && !isLoading && (
+              <View style={styles.cachedBadge}>
+                <Text style={styles.cachedBadgeText}>●</Text>
               </View>
             )}
           </View>
@@ -125,9 +171,15 @@ const LANG_LABELS: Record<Language, string> = { nl: 'NL', fr: 'FR', en: 'EN' };
 const LANG_CYCLE: Language[] = ['nl', 'fr', 'en'];
 
 export default function WalletScreen() {
-  const { addresses, addAddress, resetWallet, isAddingAddress, hasWallet, initialized } = useWallet();
+  const { addresses, addAddress, resetWallet, isAddingAddress, hasWallet, initialized } =
+    useWallet();
   const { t, language, setLanguage } = useLanguage();
   const [hideEmpty, setHideEmpty] = useState(false);
+  const queryClient = useQueryClient();
+
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const notificationSentRef = useRef(false);
+  const lastSupabaseUpdateRef = useRef<number>(0);
 
   useEffect(() => {
     if (initialized && !hasWallet) {
@@ -135,29 +187,131 @@ export default function WalletScreen() {
     }
   }, [initialized, hasWallet]);
 
+  useEffect(() => {
+    void requestNotificationPermissions();
+  }, []);
+
   const { data: btcEurPrice } = useBtcEurPrice();
+
+  const walletId = addresses[0]?.address ?? '';
+
+  const { data: storedBalances } = useQuery({
+    queryKey: ['stored-balances', walletId],
+    queryFn: () => fetchStoredBalances(walletId),
+    enabled: walletId !== '',
+    staleTime: Infinity,
+  });
 
   const balanceQueries = useQueries({
     queries: addresses.map((addr) => ({
       queryKey: ['balance', addr.address],
-      queryFn: async () => {
+      queryFn: async (): Promise<AddressBalance> => {
         const res = await fetch(`https://mempool.space/api/address/${addr.address}`);
-        if (!res.ok) return 0;
-        const data = (await res.json()) as BalanceData;
-        return (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) / 1e8;
+        if (!res.ok) return { balance: 0, isUsed: false };
+        const data = (await res.json()) as MempoolData;
+        const satoshi =
+          data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+        const isUsed = data.chain_stats.funded_txo_sum > 0;
+        return { balance: satoshi / 1e8, isUsed };
       },
-      staleTime: 30_000,
+      staleTime: 3_600_000,
+      refetchInterval: 3_600_000,
       retry: 1,
     })),
   });
 
-  const totalBtc = balanceQueries.reduce((sum, q) => sum + (q.data ?? 0), 0);
+  const allFetched = balanceQueries.every((q) => q.isFetched);
+  const isAnyFetching = balanceQueries.some((q) => q.isFetching);
+
+  const balanceDataKey = balanceQueries.map((q) => q.dataUpdatedAt).join(',');
+
+  useEffect(() => {
+    if (!allFetched || addresses.length === 0) return;
+    const now = Date.now();
+    if (now - lastSupabaseUpdateRef.current < 30_000) return;
+    lastSupabaseUpdateRef.current = now;
+
+    const updates = addresses.map((addr, i) => {
+      const data = balanceQueries[i]?.data;
+      return {
+        address: addr.address,
+        satoshi: Math.round((data?.balance ?? 0) * 1e8),
+        isUsed: data?.isUsed ?? false,
+      };
+    });
+
+    void updateAddressBalances(updates);
+
+    const unusedCount = updates.filter((u) => !u.isUsed).length;
+    console.log(`[Wallet] Unused addresses: ${unusedCount}`);
+
+    if (
+      unusedCount <= LOW_UNUSED_THRESHOLD &&
+      unusedCount > 0 &&
+      !notificationSentRef.current
+    ) {
+      notificationSentRef.current = true;
+      void sendLowUnusedAddressNotification(unusedCount, language);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allFetched, balanceDataKey]);
+
+  function getBalance(index: number): { balance: number; isUsed: boolean; isCached: boolean } {
+    const q = balanceQueries[index];
+    if (q?.data !== undefined) {
+      return { balance: q.data.balance, isUsed: q.data.isUsed, isCached: false };
+    }
+    const addr = addresses[index];
+    if (addr && storedBalances) {
+      const stored = storedBalances.get(addr.address);
+      if (stored) {
+        return { balance: stored.satoshi / 1e8, isUsed: stored.isUsed, isCached: true };
+      }
+    }
+    return { balance: 0, isUsed: false, isCached: false };
+  }
+
+  const totalBtc = useMemo(() => {
+    return addresses.reduce((sum, addr, i) => {
+      const { balance } = getBalance(i);
+      return sum + balance;
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addresses, balanceDataKey, storedBalances]);
+
   const totalEur = btcEurPrice ? totalBtc * btcEurPrice : null;
+
+  const handleRefresh = useCallback(() => {
+    notificationSentRef.current = false;
+    lastSupabaseUpdateRef.current = 0;
+
+    Animated.loop(
+      Animated.timing(spinAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      { iterations: -1 }
+    ).start();
+
+    void queryClient.refetchQueries({ queryKey: ['balance'] }).then(() => {
+      spinAnim.stopAnimation();
+      spinAnim.setValue(0);
+    });
+  }, [queryClient, spinAnim]);
+
+  const spinInterpolate = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   const displayedAddresses = hideEmpty
     ? addresses.filter((_, i) => {
+        const { balance } = getBalance(i);
         const q = balanceQueries[i];
-        return !q.isFetched || (q.data ?? 0) > 0;
+        const stored = storedBalances?.get(addresses[i]?.address ?? '');
+        const hasData = q?.isFetched || stored !== undefined;
+        return !hasData || balance > 0;
       })
     : addresses;
 
@@ -190,18 +344,16 @@ export default function WalletScreen() {
         text: t.wallet.resetWallet,
         style: 'destructive',
         onPress: () =>
-          Alert.alert(
-            t.wallet.resetConfirmTitle,
-            t.wallet.resetConfirmMsg,
-            [
-              { text: t.wallet.cancel, style: 'cancel' },
-              {
-                text: t.wallet.reset,
-                style: 'destructive',
-                onPress: () => { resetWallet(); },
+          Alert.alert(t.wallet.resetConfirmTitle, t.wallet.resetConfirmMsg, [
+            { text: t.wallet.cancel, style: 'cancel' },
+            {
+              text: t.wallet.reset,
+              style: 'destructive',
+              onPress: () => {
+                resetWallet();
               },
-            ]
-          ),
+            },
+          ]),
       },
       { text: t.wallet.cancel, style: 'cancel' },
     ]);
@@ -269,7 +421,7 @@ export default function WalletScreen() {
           <View style={styles.statCell}>
             <Text style={styles.statLabel}>{t.wallet.active}</Text>
             <Text style={[styles.statValue, { color: Colors.success }]}>
-              {balanceQueries.filter((q) => (q.data ?? 0) > 0).length}
+              {addresses.filter((_, i) => getBalance(i).balance > 0).length}
             </Text>
           </View>
           <View style={styles.statSep} />
@@ -302,7 +454,7 @@ export default function WalletScreen() {
             activeOpacity={0.8}
             testID="sweep-btn"
           >
-            <ArrowRightLeft size={17} color='#FFF' />
+            <ArrowRightLeft size={17} color="#FFF" />
             <Text style={styles.sweepBtnText}>{t.wallet.sweepAll}</Text>
           </TouchableOpacity>
         </View>
@@ -312,24 +464,44 @@ export default function WalletScreen() {
         <View style={styles.sectionLabelRow}>
           <Text style={styles.sectionLabel}>{t.wallet.addressesSection}</Text>
           {hiddenCount > 0 && hideEmpty && (
-            <Text style={styles.hiddenCount}>{hiddenCount} {t.wallet.hidden}</Text>
+            <Text style={styles.hiddenCount}>
+              {hiddenCount} {t.wallet.hidden}
+            </Text>
           )}
         </View>
-        <TouchableOpacity
-          style={[styles.filterToggle, hideEmpty && styles.filterToggleActive]}
-          onPress={() => setHideEmpty((v) => !v)}
-          activeOpacity={0.7}
-          testID="hide-empty-toggle"
-        >
-          {hideEmpty ? (
-            <EyeOff size={13} color={Colors.bitcoin} />
-          ) : (
-            <Eye size={13} color={Colors.textTertiary} />
-          )}
-          <Text style={[styles.filterToggleText, hideEmpty && styles.filterToggleTextActive]}>
-            {hideEmpty ? t.wallet.showEmpty : t.wallet.hideEmpty}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.sectionActions}>
+          <TouchableOpacity
+            style={[styles.refreshBtn, isAnyFetching && styles.refreshBtnActive]}
+            onPress={handleRefresh}
+            disabled={isAnyFetching}
+            activeOpacity={0.7}
+            testID="refresh-btn"
+          >
+            <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
+              <RotateCcw size={13} color={isAnyFetching ? Colors.bitcoin : Colors.textTertiary} />
+            </Animated.View>
+            <Text style={[styles.refreshBtnText, isAnyFetching && styles.refreshBtnTextActive]}>
+              {isAnyFetching ? t.wallet.refreshing : t.wallet.refresh}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterToggle, hideEmpty && styles.filterToggleActive]}
+            onPress={() => setHideEmpty((v) => !v)}
+            activeOpacity={0.7}
+            testID="hide-empty-toggle"
+          >
+            {hideEmpty ? (
+              <EyeOff size={13} color={Colors.bitcoin} />
+            ) : (
+              <Eye size={13} color={Colors.textTertiary} />
+            )}
+            <Text
+              style={[styles.filterToggleText, hideEmpty && styles.filterToggleTextActive]}
+            >
+              {hideEmpty ? t.wallet.showEmpty : t.wallet.hideEmpty}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -343,11 +515,14 @@ export default function WalletScreen() {
           renderItem={({ item }) => {
             const idx = addresses.findIndex((a) => a.address === item.address);
             const q = balanceQueries[idx];
+            const { balance, isCached } = getBalance(idx);
+            const isLoadingLive = (q?.isLoading ?? false) && !isCached;
             return (
               <AddressCard
                 address={item}
-                balance={q?.data ?? 0}
-                isLoading={q?.isLoading ?? false}
+                balance={balance}
+                isLoading={isLoadingLive}
+                isCached={isCached}
                 btcEurPrice={btcEurPrice}
                 activeLabel={t.wallet.activeLabel}
                 onPress={() => router.push(`/address-detail?idx=${item.index}`)}
@@ -558,6 +733,34 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     fontWeight: '500',
   },
+  sectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  refreshBtnActive: {
+    borderColor: Colors.bitcoin,
+    backgroundColor: 'rgba(247,147,26,0.08)',
+  },
+  refreshBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textTertiary,
+  },
+  refreshBtnTextActive: {
+    color: Colors.bitcoin,
+  },
   filterToggle: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -613,6 +816,13 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   activeBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.success },
+  cachedBadge: {
+    paddingHorizontal: 4,
+  },
+  cachedBadgeText: {
+    fontSize: 8,
+    color: Colors.textTertiary,
+  },
   aliasText: {
     fontSize: 14,
     fontWeight: '600',

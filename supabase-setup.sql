@@ -10,8 +10,16 @@ CREATE TABLE IF NOT EXISTS btc_addresses (
   path TEXT NOT NULL,
   public_key TEXT NOT NULL,
   alias TEXT,
+  balance_satoshi BIGINT DEFAULT 0,
+  is_used BOOLEAN DEFAULT FALSE,
+  balance_updated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add new columns if the table already exists
+ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_satoshi BIGINT DEFAULT 0;
+ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS is_used BOOLEAN DEFAULT FALSE;
+ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_updated_at TIMESTAMPTZ;
 
 -- Enable RLS
 ALTER TABLE btc_addresses ENABLE ROW LEVEL SECURITY;

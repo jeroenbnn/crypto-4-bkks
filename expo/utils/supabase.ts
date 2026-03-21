@@ -17,6 +17,9 @@ export interface AddressRow {
   path: string;
   public_key: string;
   alias: string | null;
+  balance_satoshi?: number;
+  is_used?: boolean;
+  balance_updated_at?: string;
   created_at?: string;
 }
 
@@ -64,4 +67,50 @@ export async function updateAddressAlias(address: string, alias: string): Promis
     .eq('address', address);
   if (error) throw new Error(error.message);
   console.log(`[Supabase] Updated alias for ${address} → "${alias}"`);
+}
+
+export interface StoredBalance {
+  satoshi: number;
+  isUsed: boolean;
+}
+
+export async function fetchStoredBalances(walletId: string): Promise<Map<string, StoredBalance>> {
+  if (!supabaseUrl) return new Map();
+  const { data, error } = await supabase
+    .from('btc_addresses')
+    .select('address, balance_satoshi, is_used')
+    .eq('wallet_id', walletId);
+  if (error) {
+    console.error('[Supabase] fetchStoredBalances error:', error.message);
+    return new Map();
+  }
+  const map = new Map<string, StoredBalance>();
+  for (const row of data ?? []) {
+    map.set(row.address, {
+      satoshi: row.balance_satoshi ?? 0,
+      isUsed: row.is_used ?? false,
+    });
+  }
+  console.log(`[Supabase] Fetched stored balances for ${map.size} addresses`);
+  return map;
+}
+
+export async function updateAddressBalances(
+  updates: { address: string; satoshi: number; isUsed: boolean }[]
+): Promise<void> {
+  if (!supabaseUrl || updates.length === 0) return;
+  const now = new Date().toISOString();
+  try {
+    await Promise.all(
+      updates.map(({ address, satoshi, isUsed }) =>
+        supabase
+          .from('btc_addresses')
+          .update({ balance_satoshi: satoshi, is_used: isUsed, balance_updated_at: now })
+          .eq('address', address)
+      )
+    );
+    console.log(`[Supabase] Updated balances for ${updates.length} addresses`);
+  } catch (e) {
+    console.error('[Supabase] updateAddressBalances error:', e);
+  }
 }

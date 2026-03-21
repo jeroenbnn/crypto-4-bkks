@@ -27,6 +27,9 @@ export const translations = {
       resetConfirmMsg: 'Dit verwijdert je wallet permanent van dit apparaat. Zorg dat je je herstelzin hebt opgeslagen.',
       cancel: 'Annuleren',
       reset: 'Resetten',
+      refresh: 'Vernieuwen',
+      refreshing: 'Vernieuwen...',
+      lastUpdated: 'Bijgewerkt',
     },
     index: {
       yourKeys: 'Jouw sleutels. Jouw bitcoin.',
@@ -89,6 +92,9 @@ export const translations = {
       resetConfirmMsg: 'Cela supprime définitivement votre portefeuille de cet appareil. Assurez-vous d\'avoir sauvegardé votre phrase de récupération.',
       cancel: 'Annuler',
       reset: 'Réinitialiser',
+      refresh: 'Actualiser',
+      refreshing: 'Actualisation...',
+      lastUpdated: 'Mis à jour',
     },
     index: {
       yourKeys: 'Vos clés. Votre bitcoin.',
@@ -151,6 +157,9 @@ export const translations = {
       resetConfirmMsg: 'This permanently removes your wallet from this device. Ensure you have your seed phrase backed up.',
       cancel: 'Cancel',
       reset: 'Reset',
+      refresh: 'Refresh',
+      refreshing: 'Refreshing...',
+      lastUpdated: 'Updated',
     },
     index: {
       yourKeys: 'Your keys. Your bitcoin.',
