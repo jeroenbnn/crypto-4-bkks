@@ -32,6 +32,7 @@ export const translations = {
       lastUpdated: 'Bijgewerkt',
       searchPlaceholder: 'Zoek op alias of adres...',
       noResults: 'Geen adressen gevonden',
+      pendingLabel: 'wachtend',
     },
     index: {
       yourKeys: 'Jouw sleutels. Jouw bitcoin.',
@@ -99,6 +100,7 @@ export const translations = {
       lastUpdated: 'Mis à jour',
       searchPlaceholder: 'Rechercher par alias ou adresse...',
       noResults: 'Aucune adresse trouvée',
+      pendingLabel: 'en attente',
     },
     index: {
       yourKeys: 'Vos clés. Votre bitcoin.',
@@ -166,6 +168,7 @@ export const translations = {
       lastUpdated: 'Updated',
       searchPlaceholder: 'Search by alias or address...',
       noResults: 'No addresses found',
+      pendingLabel: 'pending',
     },
     index: {
       yourKeys: 'Your keys. Your bitcoin.',

@@ -44,11 +44,40 @@ interface MempoolData {
   chain_stats: {
     funded_txo_sum: number;
     spent_txo_sum: number;
+    tx_count: number;
   };
+  mempool_stats: {
+    funded_txo_sum: number;
+    spent_txo_sum: number;
+    tx_count: number;
+  };
+}
+
+interface MempoolTxVout {
+  scriptpubkey_address?: string;
+  value: number;
+}
+
+interface MempoolTxVin {
+  prevout?: {
+    scriptpubkey_address?: string;
+    value: number;
+  };
+}
+
+interface MempoolTx {
+  txid: string;
+  status: {
+    confirmed: boolean;
+    block_height: number;
+  };
+  vin: MempoolTxVin[];
+  vout: MempoolTxVout[];
 }
 
 interface AddressBalance {
   balance: number;
+  pendingSat: number;
   isUsed: boolean;
 }
 
@@ -89,23 +118,29 @@ function formatEur(val: number): string {
 interface AddressCardProps {
   address: DerivedAddress;
   balance: number;
+  pendingSat: number;
   isLoading: boolean;
   isCached: boolean;
   btcEurPrice: number | null | undefined;
   activeLabel: string;
+  pendingLabel: string;
   onPress: () => void;
 }
 
 function AddressCard({
   address,
   balance,
+  pendingSat,
   isLoading,
   isCached,
   btcEurPrice,
   activeLabel,
+  pendingLabel,
   onPress,
 }: AddressCardProps) {
   const eurValue = btcEurPrice ? balance * btcEurPrice : null;
+  const pendingBtc = pendingSat / 1e8;
+  const pendingEur = btcEurPrice && pendingSat > 0 ? pendingBtc * btcEurPrice : null;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const onPressIn = useCallback(
@@ -157,6 +192,13 @@ function AddressCard({
                 <Text style={styles.balanceBtc}>{formatBtc(balance)} BTC</Text>
                 {eurValue !== null && eurValue > 0 && (
                   <Text style={styles.balanceEur}>{formatEur(eurValue)}</Text>
+                )}
+                {pendingSat > 0 && (
+                  <View style={styles.pendingBadge}>
+                    <Text style={styles.pendingBadgeText}>
+                      (+{formatBtc(pendingBtc)}{pendingEur !== null ? ` / ${formatEur(pendingEur)}` : ''}) {pendingLabel}
+                    </Text>
+                  </View>
                 )}
               </>
             )}
@@ -225,13 +267,54 @@ export default function WalletScreen() {
     queries: addresses.map((addr) => ({
       queryKey: ['balance', addr.address],
       queryFn: async (): Promise<AddressBalance> => {
-        const res = await fetch(`https://mempool.space/api/address/${addr.address}`);
-        if (!res.ok) return { balance: 0, isUsed: false };
-        const data = (await res.json()) as MempoolData;
-        const satoshi =
-          data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+        const [addrRes, heightRes] = await Promise.all([
+          fetch(`https://mempool.space/api/address/${addr.address}`),
+          fetch('https://mempool.space/api/blocks/tip/height'),
+        ]);
+        if (!addrRes.ok) return { balance: 0, pendingSat: 0, isUsed: false };
+        const data = (await addrRes.json()) as MempoolData;
+        const currentHeight = heightRes.ok ? parseInt(await heightRes.text(), 10) : 0;
         const isUsed = data.chain_stats.funded_txo_sum > 0;
-        return { balance: satoshi / 1e8, isUsed };
+        const hasTxs = data.chain_stats.tx_count > 0 || data.mempool_stats.tx_count > 0;
+
+        if (!hasTxs || currentHeight === 0) {
+          const sat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+          return { balance: sat / 1e8, pendingSat: 0, isUsed };
+        }
+
+        const txsRes = await fetch(`https://mempool.space/api/address/${addr.address}/txs`);
+        if (!txsRes.ok) {
+          const sat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+          return { balance: sat / 1e8, pendingSat: 0, isUsed };
+        }
+
+        const txs = (await txsRes.json()) as MempoolTx[];
+        let pendingIncomingSat = 0;
+        let chainPendingNetSat = 0;
+
+        for (const tx of txs) {
+          const confs = tx.status.confirmed
+            ? currentHeight - tx.status.block_height + 1
+            : 0;
+          if (confs < 3) {
+            const incoming = tx.vout
+              .filter((v) => v.scriptpubkey_address === addr.address)
+              .reduce((s, v) => s + v.value, 0);
+            const outgoing = tx.vin
+              .filter((v) => v.prevout?.scriptpubkey_address === addr.address)
+              .reduce((s, v) => s + (v.prevout?.value ?? 0), 0);
+            pendingIncomingSat += incoming - outgoing;
+            if (tx.status.confirmed) {
+              chainPendingNetSat += incoming - outgoing;
+            }
+          }
+        }
+
+        const chainSat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+        const confirmedBalance = Math.max(0, chainSat - chainPendingNetSat) / 1e8;
+        const pendingSat = Math.max(0, pendingIncomingSat);
+        console.log(`[Balance] ${addr.address.slice(0, 10)}… confirmed=${confirmedBalance.toFixed(8)} pending=${pendingSat}sat`);
+        return { balance: confirmedBalance, pendingSat, isUsed };
       },
       staleTime: 3_600_000,
       refetchInterval: 3_600_000,
@@ -275,30 +358,36 @@ export default function WalletScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allFetched, balanceDataKey]);
 
-  function getBalance(index: number): { balance: number; isUsed: boolean; isCached: boolean } {
+  function getBalance(index: number): { balance: number; pendingSat: number; isUsed: boolean; isCached: boolean } {
     const q = balanceQueries[index];
     if (q?.data !== undefined) {
-      return { balance: q.data.balance, isUsed: q.data.isUsed, isCached: false };
+      return { balance: q.data.balance, pendingSat: q.data.pendingSat, isUsed: q.data.isUsed, isCached: false };
     }
     const addr = addresses[index];
     if (addr && storedBalances) {
       const stored = storedBalances.get(addr.address);
       if (stored) {
-        return { balance: stored.satoshi / 1e8, isUsed: stored.isUsed, isCached: true };
+        return { balance: stored.satoshi / 1e8, pendingSat: 0, isUsed: stored.isUsed, isCached: true };
       }
     }
-    return { balance: 0, isUsed: false, isCached: false };
+    return { balance: 0, pendingSat: 0, isUsed: false, isCached: false };
   }
 
-  const totalBtc = useMemo(() => {
-    return addresses.reduce((sum, addr, i) => {
-      const { balance } = getBalance(i);
-      return sum + balance;
-    }, 0);
+  const { totalBtc, totalPendingSat } = useMemo(() => {
+    let btc = 0;
+    let pending = 0;
+    addresses.forEach((_, i) => {
+      const { balance, pendingSat } = getBalance(i);
+      btc += balance;
+      pending += pendingSat;
+    });
+    return { totalBtc: btc, totalPendingSat: pending };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addresses, balanceDataKey, storedBalances]);
 
   const totalEur = btcEurPrice ? totalBtc * btcEurPrice : null;
+  const totalPendingBtc = totalPendingSat / 1e8;
+  const totalPendingEur = btcEurPrice && totalPendingSat > 0 ? totalPendingBtc * btcEurPrice : null;
 
   const handleRefresh = useCallback(() => {
     notificationSentRef.current = false;
@@ -427,6 +516,11 @@ export default function WalletScreen() {
               {totalEur !== null ? formatEur(totalEur) : '—'}
             </Text>
             <Text style={styles.walletValueBtc}>{formatBtc(totalBtc)} BTC</Text>
+            {totalPendingSat > 0 && (
+              <Text style={styles.totalPendingText}>
+                (+{formatBtc(totalPendingBtc)}{totalPendingEur !== null ? ` / ${formatEur(totalPendingEur)}` : ''}) {t.wallet.pendingLabel}
+              </Text>
+            )}
           </View>
           <View style={styles.walletValueRight}>
             <View style={styles.priceTag}>
@@ -573,10 +667,12 @@ export default function WalletScreen() {
               <AddressCard
                 address={item}
                 balance={balance}
+                pendingSat={getBalance(idx).pendingSat}
                 isLoading={isLoadingLive}
                 isCached={isCached}
                 btcEurPrice={btcEurPrice}
                 activeLabel={t.wallet.activeLabel}
+                pendingLabel={t.wallet.pendingLabel}
                 onPress={() => router.push(`/address-detail?idx=${item.index}`)}
               />
             );
@@ -701,6 +797,13 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
     fontFamily: 'monospace',
+  },
+  totalPendingText: {
+    fontSize: 11,
+    color: '#D4A017',
+    fontWeight: '600',
+    fontFamily: 'monospace',
+    marginTop: 2,
   },
   walletValueRight: {
     alignItems: 'flex-end',
@@ -901,6 +1004,20 @@ const styles = StyleSheet.create({
   balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   balanceBtc: { fontSize: 15, fontWeight: '700', color: Colors.text },
   balanceEur: { fontSize: 12, color: Colors.textTertiary },
+  pendingBadge: {
+    backgroundColor: 'rgba(255,196,0,0.1)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,196,0,0.25)',
+  },
+  pendingBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#D4A017',
+    fontFamily: 'monospace',
+  },
   footer: { height: 16 },
   searchContainer: {
     marginHorizontal: 20,
