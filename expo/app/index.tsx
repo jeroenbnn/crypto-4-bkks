@@ -17,6 +17,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AlertCircle, ArrowLeft, Fingerprint, ScanFace, ShieldCheck } from 'lucide-react-native';
 import { useWallet } from '@/context/wallet';
+import { useLanguage } from '@/context/language';
 import { Colors } from '@/constants/colors';
 import { authenticateWithBiometrics, getSupportedBiometricType, BiometricType } from '@/utils/biometrics';
 
@@ -34,6 +35,8 @@ export default function WelcomeScreen() {
     isImporting,
     importError,
   } = useWallet();
+
+  const { t } = useLanguage();
 
   const [view, setView] = useState<ScreenView>('welcome');
   const [seedInput, setSeedInput] = useState('');
@@ -90,9 +93,9 @@ export default function WelcomeScreen() {
     if (result.success) {
       router.replace('/wallet');
     } else {
-      setAuthError('Authentication failed. Try again.');
+      setAuthError(t.index.authFailed);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (view === 'locked') {
@@ -107,6 +110,20 @@ export default function WelcomeScreen() {
       </View>
     );
   }
+
+  const lockSubtitle =
+    biometricType === 'face'
+      ? t.index.useFaceId
+      : biometricType === 'fingerprint'
+      ? t.index.useTouchId
+      : t.index.usePasscode;
+
+  const unlockBtnLabel =
+    biometricType === 'face'
+      ? t.index.unlockFaceId
+      : biometricType === 'fingerprint'
+      ? t.index.unlockTouchId
+      : t.index.unlockPasscode;
 
   if (view === 'locked') {
     return (
@@ -137,14 +154,8 @@ export default function WelcomeScreen() {
             </View>
 
             <View style={styles.lockTextSection}>
-              <Text style={styles.lockTitle}>Bitcoin Wallet</Text>
-              <Text style={styles.lockSubtitle}>
-                {biometricType === 'face'
-                  ? 'Use Face ID or passcode to unlock'
-                  : biometricType === 'fingerprint'
-                  ? 'Use Touch ID or passcode to unlock'
-                  : 'Use your passcode to unlock'}
-              </Text>
+              <Text style={styles.lockTitle}>{t.wallet.title}</Text>
+              <Text style={styles.lockSubtitle}>{lockSubtitle}</Text>
             </View>
 
             {authError ? (
@@ -176,13 +187,7 @@ export default function WelcomeScreen() {
                     ) : biometricType === 'fingerprint' ? (
                       <Fingerprint size={20} color="#FFF" />
                     ) : null}
-                    <Text style={styles.unlockBtnText}>
-                      {biometricType === 'face'
-                        ? 'Unlock with Face ID'
-                        : biometricType === 'fingerprint'
-                        ? 'Unlock with Touch ID'
-                        : 'Unlock with Passcode'}
-                    </Text>
+                    <Text style={styles.unlockBtnText}>{unlockBtnLabel}</Text>
                   </View>
                 )}
               </LinearGradient>
@@ -217,7 +222,7 @@ export default function WelcomeScreen() {
                 onPress={() => { setView('welcome'); setSeedInput(''); }}
               >
                 <ArrowLeft size={18} color={Colors.textSecondary} />
-                <Text style={styles.backButtonText}>Back</Text>
+                <Text style={styles.backButtonText}>{t.index.back}</Text>
               </TouchableOpacity>
 
               <View style={styles.importHeader}>
@@ -226,10 +231,8 @@ export default function WelcomeScreen() {
                     <Text style={styles.smallBtcText}>₿</Text>
                   </View>
                 </View>
-                <Text style={styles.importTitle}>Import Wallet</Text>
-                <Text style={styles.importSubtitle}>
-                  Enter your 12 or 24-word seed phrase, separated by spaces.
-                </Text>
+                <Text style={styles.importTitle}>{t.index.importTitle}</Text>
+                <Text style={styles.importSubtitle}>{t.index.importSubtitle}</Text>
               </View>
 
               <View style={styles.inputContainer}>
@@ -237,7 +240,7 @@ export default function WelcomeScreen() {
                   style={styles.seedInput}
                   value={seedInput}
                   onChangeText={setSeedInput}
-                  placeholder="word1 word2 word3 ..."
+                  placeholder={t.index.importPlaceholder}
                   placeholderTextColor={Colors.textTertiary}
                   multiline
                   numberOfLines={5}
@@ -271,14 +274,12 @@ export default function WelcomeScreen() {
                   {isImporting ? (
                     <ActivityIndicator color="#FFF" />
                   ) : (
-                    <Text style={styles.primaryButtonText}>Import Wallet</Text>
+                    <Text style={styles.primaryButtonText}>{t.index.importConfirm}</Text>
                   )}
                 </LinearGradient>
               </TouchableOpacity>
 
-              <Text style={styles.importFooter}>
-                Your seed phrase is never sent to any server and stays on this device.
-              </Text>
+              <Text style={styles.importFooter}>{t.index.importFooter}</Text>
             </ScrollView>
           </SafeAreaView>
         </KeyboardAvoidingView>
@@ -315,9 +316,9 @@ export default function WelcomeScreen() {
           </View>
 
           <View style={styles.titleSection}>
-            <Text style={styles.title}>Bitcoin Wallet</Text>
+            <Text style={styles.title}>{t.wallet.title}</Text>
             <Text style={styles.subtitle}>
-              Your keys. Your bitcoin.{'\n'}Non-custodial & secure.
+              {t.index.yourKeys}{'\n'}{t.index.nonCustodial}
             </Text>
           </View>
 
@@ -338,7 +339,7 @@ export default function WelcomeScreen() {
                 {isCreating ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={styles.primaryButtonText}>Create New Wallet</Text>
+                  <Text style={styles.primaryButtonText}>{t.index.createWallet}</Text>
                 )}
               </LinearGradient>
             </TouchableOpacity>
@@ -349,7 +350,7 @@ export default function WelcomeScreen() {
               activeOpacity={0.7}
               testID="import-wallet-btn"
             >
-              <Text style={styles.secondaryButtonText}>Import Existing Wallet</Text>
+              <Text style={styles.secondaryButtonText}>{t.index.importWallet}</Text>
             </TouchableOpacity>
           </View>
 

@@ -14,11 +14,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useQuery, useQueries } from '@tanstack/react-query';
-import { Settings, Plus, ChevronRight, ArrowRightLeft, Eye, EyeOff, TrendingUp } from 'lucide-react-native';
+import { Settings, Plus, ChevronRight, ArrowRightLeft, Eye, EyeOff, TrendingUp, Globe } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
+import { useLanguage } from '@/context/language';
 import { Colors } from '@/constants/colors';
 import { DerivedAddress } from '@/utils/bitcoin';
+import { Language } from '@/constants/i18n';
 
 interface BalanceData {
   chain_stats: { funded_txo_sum: number; spent_txo_sum: number };
@@ -62,10 +64,11 @@ interface AddressCardProps {
   balance: number;
   isLoading: boolean;
   btcEurPrice: number | null | undefined;
+  activeLabel: string;
   onPress: () => void;
 }
 
-function AddressCard({ address, balance, isLoading, btcEurPrice, onPress }: AddressCardProps) {
+function AddressCard({ address, balance, isLoading, btcEurPrice, activeLabel, onPress }: AddressCardProps) {
   const eurValue = btcEurPrice ? balance * btcEurPrice : null;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -91,7 +94,7 @@ function AddressCard({ address, balance, isLoading, btcEurPrice, onPress }: Addr
             </View>
             {balance > 0 && (
               <View style={styles.activeBadge}>
-                <Text style={styles.activeBadgeText}>● Active</Text>
+                <Text style={styles.activeBadgeText}>{activeLabel}</Text>
               </View>
             )}
           </View>
@@ -118,8 +121,12 @@ function AddressCard({ address, balance, isLoading, btcEurPrice, onPress }: Addr
   );
 }
 
+const LANG_LABELS: Record<Language, string> = { nl: 'NL', fr: 'FR', en: 'EN' };
+const LANG_CYCLE: Language[] = ['nl', 'fr', 'en'];
+
 export default function WalletScreen() {
   const { addresses, addAddress, resetWallet, isAddingAddress, hasWallet, initialized } = useWallet();
+  const { t, language, setLanguage } = useLanguage();
   const [hideEmpty, setHideEmpty] = useState(false);
 
   useEffect(() => {
@@ -160,77 +167,68 @@ export default function WalletScreen() {
     const lines = addresses.map((a) => `  "${a.address}",`).join('\n');
     const content = `const BTC_ADDRESSES = [\n${lines}\n];`;
     await Clipboard.setStringAsync(content);
-    Alert.alert('Exported', `${addresses.length} addresses copied to clipboard in BTC_ADDRESSES format.`);
+    Alert.alert(
+      t.wallet.exportedTitle,
+      t.wallet.exportedMsg.replace('%d', String(addresses.length))
+    );
   };
 
+  const handleCycleLanguage = useCallback(() => {
+    const idx = LANG_CYCLE.indexOf(language);
+    const next = LANG_CYCLE[(idx + 1) % LANG_CYCLE.length];
+    void setLanguage(next);
+  }, [language, setLanguage]);
+
   const handleSettings = () => {
-    Alert.alert('Wallet', '', [
-      { text: 'View Seed Phrase', onPress: () => router.push('/seed-phrase') },
+    Alert.alert(t.wallet.title, '', [
+      { text: t.wallet.viewSeedPhrase, onPress: () => router.push('/seed-phrase') },
       {
-        text: `Export ${addresses.length} Addresses`,
+        text: t.wallet.exportAddresses.replace('%d', String(addresses.length)),
         onPress: handleExportAddresses,
       },
       {
-        text: 'Reset Wallet',
+        text: t.wallet.resetWallet,
         style: 'destructive',
         onPress: () =>
           Alert.alert(
-            'Reset Wallet',
-            'This permanently removes your wallet from this device. Ensure you have your seed phrase backed up.',
+            t.wallet.resetConfirmTitle,
+            t.wallet.resetConfirmMsg,
             [
-              { text: 'Cancel', style: 'cancel' },
+              { text: t.wallet.cancel, style: 'cancel' },
               {
-                text: 'Reset',
+                text: t.wallet.reset,
                 style: 'destructive',
                 onPress: () => { resetWallet(); },
               },
             ]
           ),
       },
-      { text: 'Cancel', style: 'cancel' },
+      { text: t.wallet.cancel, style: 'cancel' },
     ]);
   };
 
   const ListHeader = (
-    <View style={styles.sectionHeader}>
-      <View style={styles.sectionLabelRow}>
-        <Text style={styles.sectionLabel}>ADDRESSES</Text>
-        {hiddenCount > 0 && hideEmpty && (
-          <Text style={styles.hiddenCount}>{hiddenCount} verborgen</Text>
-        )}
-      </View>
-      <TouchableOpacity
-        style={[styles.filterToggle, hideEmpty && styles.filterToggleActive]}
-        onPress={() => setHideEmpty((v) => !v)}
-        activeOpacity={0.7}
-        testID="hide-empty-toggle"
-      >
-        {hideEmpty ? (
-          <EyeOff size={13} color={Colors.bitcoin} />
-        ) : (
-          <Eye size={13} color={Colors.textTertiary} />
-        )}
-        <Text style={[styles.filterToggleText, hideEmpty && styles.filterToggleTextActive]}>
-          {hideEmpty ? 'Toon leeg' : 'Verberg leeg'}
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <LinearGradient colors={['#1A0F08', '#0A0A0F']} style={styles.header}>
-          <View style={styles.headerTop}>
-            <View style={styles.brandRow}>
-              <View style={styles.btcBadge}>
-                <Text style={styles.btcBadgeText}>₿</Text>
-              </View>
-              <View>
-                <Text style={styles.headerTitle}>Bitcoin Wallet</Text>
-                <Text style={styles.headerSubtitle}>BIP44 HD Wallet</Text>
-              </View>
+    <View>
+      <LinearGradient colors={['#1A0F08', '#0A0A0F']} style={styles.header}>
+        <View style={styles.headerTop}>
+          <View style={styles.brandRow}>
+            <View style={styles.btcBadge}>
+              <Text style={styles.btcBadgeText}>₿</Text>
             </View>
+            <View>
+              <Text style={styles.headerTitle}>{t.wallet.title}</Text>
+              <Text style={styles.headerSubtitle}>{t.wallet.subtitle}</Text>
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.langBtn}
+              onPress={handleCycleLanguage}
+              testID="lang-btn"
+            >
+              <Globe size={13} color={Colors.textTertiary} />
+              <Text style={styles.langBtnText}>{LANG_LABELS[language]}</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.settingsBtn}
               onPress={handleSettings}
@@ -239,48 +237,106 @@ export default function WalletScreen() {
               <Settings size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
+        </View>
 
-          <View style={styles.walletValueCard}>
-            <View style={styles.walletValueLeft}>
-              <Text style={styles.walletValueLabel}>TOTALE WAARDE</Text>
-              <Text style={styles.walletValueAmount}>
-                {totalEur !== null ? formatEur(totalEur) : '—'}
-              </Text>
-              <Text style={styles.walletValueBtc}>{formatBtc(totalBtc)} BTC</Text>
-            </View>
-            <View style={styles.walletValueRight}>
-              <View style={styles.priceTag}>
-                <TrendingUp size={11} color={Colors.bitcoin} />
-                <Text style={styles.priceTagLabel}>BTC PRIJS</Text>
-              </View>
-              <Text style={styles.priceValue}>
-                {btcEurPrice
-                  ? `€${btcEurPrice.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`
-                  : '—'}
-              </Text>
-            </View>
+        <View style={styles.walletValueCard}>
+          <View style={styles.walletValueLeft}>
+            <Text style={styles.walletValueLabel}>{t.wallet.totalValue}</Text>
+            <Text style={styles.walletValueAmount}>
+              {totalEur !== null ? formatEur(totalEur) : '—'}
+            </Text>
+            <Text style={styles.walletValueBtc}>{formatBtc(totalBtc)} BTC</Text>
           </View>
-
-          <View style={styles.statsRow}>
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>ADRESSEN</Text>
-              <Text style={styles.statValue}>{addresses.length}</Text>
+          <View style={styles.walletValueRight}>
+            <View style={styles.priceTag}>
+              <TrendingUp size={11} color={Colors.bitcoin} />
+              <Text style={styles.priceTagLabel}>{t.wallet.btcPrice}</Text>
             </View>
-            <View style={styles.statSep} />
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>ACTIEF</Text>
-              <Text style={[styles.statValue, { color: Colors.success }]}>
-                {balanceQueries.filter((q) => (q.data ?? 0) > 0).length}
-              </Text>
-            </View>
-            <View style={styles.statSep} />
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>NETWERK</Text>
-              <Text style={[styles.statValue, { color: Colors.success }]}>Mainnet</Text>
-            </View>
+            <Text style={styles.priceValue}>
+              {btcEurPrice
+                ? `€${btcEurPrice.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`
+                : '—'}
+            </Text>
           </View>
-        </LinearGradient>
+        </View>
 
+        <View style={styles.statsRow}>
+          <View style={styles.statCell}>
+            <Text style={styles.statLabel}>{t.wallet.addresses}</Text>
+            <Text style={styles.statValue}>{addresses.length}</Text>
+          </View>
+          <View style={styles.statSep} />
+          <View style={styles.statCell}>
+            <Text style={styles.statLabel}>{t.wallet.active}</Text>
+            <Text style={[styles.statValue, { color: Colors.success }]}>
+              {balanceQueries.filter((q) => (q.data ?? 0) > 0).length}
+            </Text>
+          </View>
+          <View style={styles.statSep} />
+          <View style={styles.statCell}>
+            <Text style={styles.statLabel}>{t.wallet.network}</Text>
+            <Text style={[styles.statValue, { color: Colors.success }]}>{t.wallet.mainnet}</Text>
+          </View>
+        </View>
+
+        <View style={styles.actionBtns}>
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => addAddress()}
+            disabled={isAddingAddress}
+            activeOpacity={0.8}
+            testID="add-address-btn"
+          >
+            {isAddingAddress ? (
+              <ActivityIndicator size="small" color={Colors.bitcoin} />
+            ) : (
+              <>
+                <Plus size={17} color={Colors.bitcoin} />
+                <Text style={styles.addBtnText}>{t.wallet.addAddress}</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.sweepBtn}
+            onPress={() => router.push('/sweep')}
+            activeOpacity={0.8}
+            testID="sweep-btn"
+          >
+            <ArrowRightLeft size={17} color='#FFF' />
+            <Text style={styles.sweepBtnText}>{t.wallet.sweepAll}</Text>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
+
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionLabelRow}>
+          <Text style={styles.sectionLabel}>{t.wallet.addressesSection}</Text>
+          {hiddenCount > 0 && hideEmpty && (
+            <Text style={styles.hiddenCount}>{hiddenCount} {t.wallet.hidden}</Text>
+          )}
+        </View>
+        <TouchableOpacity
+          style={[styles.filterToggle, hideEmpty && styles.filterToggleActive]}
+          onPress={() => setHideEmpty((v) => !v)}
+          activeOpacity={0.7}
+          testID="hide-empty-toggle"
+        >
+          {hideEmpty ? (
+            <EyeOff size={13} color={Colors.bitcoin} />
+          ) : (
+            <Eye size={13} color={Colors.textTertiary} />
+          )}
+          <Text style={[styles.filterToggleText, hideEmpty && styles.filterToggleTextActive]}>
+            {hideEmpty ? t.wallet.showEmpty : t.wallet.hideEmpty}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <FlatList
           data={displayedAddresses}
           keyExtractor={(item) => item.address}
@@ -293,41 +349,14 @@ export default function WalletScreen() {
                 balance={q?.data ?? 0}
                 isLoading={q?.isLoading ?? false}
                 btcEurPrice={btcEurPrice}
+                activeLabel={t.wallet.activeLabel}
                 onPress={() => router.push(`/address-detail?idx=${item.index}`)}
               />
             );
           }}
           contentContainerStyle={styles.list}
           ListHeaderComponent={ListHeader}
-          ListFooterComponent={
-            <View style={styles.footerBtns}>
-              <TouchableOpacity
-                style={styles.addBtn}
-                onPress={() => addAddress()}
-                disabled={isAddingAddress}
-                activeOpacity={0.8}
-                testID="add-address-btn"
-              >
-                {isAddingAddress ? (
-                  <ActivityIndicator size="small" color={Colors.bitcoin} />
-                ) : (
-                  <>
-                    <Plus size={17} color={Colors.bitcoin} />
-                    <Text style={styles.addBtnText}>Adres Toevoegen</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.sweepBtn}
-                onPress={() => router.push('/sweep')}
-                activeOpacity={0.8}
-                testID="sweep-btn"
-              >
-                <ArrowRightLeft size={17} color='#FFF' />
-                <Text style={styles.sweepBtnText}>Alle Fondsen Samenvoegen</Text>
-              </TouchableOpacity>
-            </View>
-          }
+          ListFooterComponent={<View style={styles.footer} />}
           showsVerticalScrollIndicator={false}
         />
       </SafeAreaView>
@@ -370,6 +399,28 @@ const styles = StyleSheet.create({
   btcBadgeText: { fontSize: 18, color: '#FFF', fontWeight: '800' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: Colors.text, letterSpacing: -0.3 },
   headerSubtitle: { fontSize: 11, color: Colors.textTertiary, marginTop: 1 },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  langBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 38,
+    paddingHorizontal: 10,
+    borderRadius: 19,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  langBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    letterSpacing: 0.5,
+  },
   settingsBtn: {
     width: 38,
     height: 38,
@@ -449,13 +500,47 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 10, color: Colors.textTertiary, fontWeight: '700', letterSpacing: 0.8 },
   statValue: { fontSize: 14, fontWeight: '800', color: Colors.text },
   statSep: { width: 1, backgroundColor: Colors.border, marginVertical: 4 },
-  list: { paddingHorizontal: 20, paddingBottom: 36, paddingTop: 6 },
+  actionBtns: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  addBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.bitcoin,
+    paddingVertical: 14,
+  },
+  addBtnText: { fontSize: 14, fontWeight: '700', color: Colors.bitcoin },
+  sweepBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: Colors.bitcoin,
+    borderRadius: 14,
+    paddingVertical: 14,
+    shadowColor: Colors.bitcoin,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  sweepBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  list: { paddingBottom: 36 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
-    marginTop: 8,
+    marginTop: 16,
+    paddingHorizontal: 20,
   },
   sectionLabelRow: {
     flexDirection: 'row',
@@ -504,6 +589,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     marginBottom: 10,
+    marginHorizontal: 20,
     overflow: 'hidden',
   },
   cardAccent: {
@@ -541,33 +627,5 @@ const styles = StyleSheet.create({
   balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   balanceBtc: { fontSize: 15, fontWeight: '700', color: Colors.text },
   balanceEur: { fontSize: 12, color: Colors.textTertiary },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: Colors.bitcoin,
-    paddingVertical: 16,
-    marginTop: 4,
-  },
-  addBtnText: { fontSize: 15, fontWeight: '700', color: Colors.bitcoin },
-  footerBtns: { gap: 10 },
-  sweepBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.bitcoin,
-    borderRadius: 16,
-    paddingVertical: 16,
-    shadowColor: Colors.bitcoin,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  sweepBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+  footer: { height: 16 },
 });
