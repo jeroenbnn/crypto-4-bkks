@@ -28,6 +28,10 @@ export default function RootLayout() {
             name="seed-phrase"
             options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
           />
+          <Stack.Screen
+            name="sweep"
+            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+          />
         </Stack>
       </WalletProvider>
     </QueryClientProvider>

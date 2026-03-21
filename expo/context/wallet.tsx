@@ -1,6 +1,6 @@
 import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import {
   createMnemonic,
@@ -158,11 +158,14 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     onError: (e) => console.error('[Wallet] Reset error:', e),
   });
 
+  const getSeed = useCallback(() => seedRef.current, []);
+
   return useMemo(() => ({
     mnemonic,
     addresses,
     initialized,
     hasWallet: mnemonic !== null,
+    getSeed,
     createWallet: createWalletMutation.mutate,
     importWallet: importWalletMutation.mutate,
     addAddress: addAddressMutation.mutate,
@@ -187,5 +190,6 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     updateAliasMutation.mutate,
     updateAliasMutation.isPending,
     resetWalletMutation.mutate,
+    getSeed,
   ]);
 });

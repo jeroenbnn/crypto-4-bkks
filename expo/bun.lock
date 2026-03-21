@@ -12,6 +12,7 @@
         "@rork-ai/toolkit-sdk": "^0.2.51",
         "@scure/bip32": "^2.0.1",
         "@scure/bip39": "^2.0.1",
+        "@scure/btc-signer": "^2.0.1",
         "@stardazed/streams-text-encoding": "^1.0.2",
         "@supabase/supabase-js": "^2.99.3",
         "@tanstack/react-query": "^5.83.0",
@@ -525,6 +526,8 @@
     "@scure/bip32": ["@scure/bip32@2.0.1", "", { "dependencies": { "@noble/curves": "2.0.1", "@noble/hashes": "2.0.1", "@scure/base": "2.0.0" } }, "sha512-4Md1NI5BzoVP+bhyJaY3K6yMesEFzNS1sE/cP+9nuvE7p/b0kx9XbpDHHFl8dHtufcbdHRUUQdRqLIPHN/s7yA=="],
 
     "@scure/bip39": ["@scure/bip39@2.0.1", "", { "dependencies": { "@noble/hashes": "2.0.1", "@scure/base": "2.0.0" } }, "sha512-PsxdFj/d2AcJcZDX1FXN3dDgitDDTmwf78rKZq1a6c1P1Nan1X/Sxc7667zU3U+AN60g7SxxP0YCVw2H/hBycg=="],
+
+    "@scure/btc-signer": ["@scure/btc-signer@2.0.1", "", { "dependencies": { "@noble/curves": "~2.0.0", "@noble/hashes": "~2.0.0", "@scure/base": "~2.0.0", "micro-packed": "~0.8.0" } }, "sha512-vk5a/16BbSFZkhh1JIJ0+4H9nceZVo5WzKvJGGWiPp3sQOExeW+L53z3dI6u0adTPoE8ZbL+XEb6hEGzVZSvvQ=="],
 
     "@sinclair/typebox": ["@sinclair/typebox@0.27.8", "", {}, "sha512-+Fj43pSMwJs4KRrH/938Uf+uAELIgVBmQzg/q1YG10djyfA3TnrU8N8XzqCh/okZdszqBQTZf96idMfE5lnwTA=="],
 
@@ -1425,6 +1428,8 @@
     "metro-transform-plugins": ["metro-transform-plugins@0.83.2", "", { "dependencies": { "@babel/core": "^7.25.2", "@babel/generator": "^7.25.0", "@babel/template": "^7.25.0", "@babel/traverse": "^7.25.3", "flow-enums-runtime": "^0.0.6", "nullthrows": "^1.1.1" } }, "sha512-5WlW25WKPkiJk2yA9d8bMuZrgW7vfA4f4MBb9ZeHbTB3eIAoNN8vS8NENgG/X/90vpTB06X66OBvxhT3nHwP6A=="],
 
     "metro-transform-worker": ["metro-transform-worker@0.83.2", "", { "dependencies": { "@babel/core": "^7.25.2", "@babel/generator": "^7.25.0", "@babel/parser": "^7.25.3", "@babel/types": "^7.25.2", "flow-enums-runtime": "^0.0.6", "metro": "0.83.2", "metro-babel-transformer": "0.83.2", "metro-cache": "0.83.2", "metro-cache-key": "0.83.2", "metro-minify-terser": "0.83.2", "metro-source-map": "0.83.2", "metro-transform-plugins": "0.83.2", "nullthrows": "^1.1.1" } }, "sha512-G5DsIg+cMZ2KNfrdLnWMvtppb3+Rp1GMyj7Bvd9GgYc/8gRmvq1XVEF9XuO87Shhb03kFhGqMTgZerz3hZ1v4Q=="],
+
+    "micro-packed": ["micro-packed@0.8.0", "", { "dependencies": { "@scure/base": "2.0.0" } }, "sha512-AKb8znIvg9sooythbXzyFeChEY0SkW0C6iXECpy/ls0e5BtwXO45J9wD9SLzBztnS4XmF/5kwZknsq+jyynd/A=="],
 
     "micromatch": ["micromatch@4.0.8", "", { "dependencies": { "braces": "^3.0.3", "picomatch": "^2.3.1" } }, "sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA=="],
 

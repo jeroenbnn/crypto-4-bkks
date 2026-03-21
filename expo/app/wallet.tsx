@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { Settings, Plus, ChevronRight } from 'lucide-react-native';
+import { Settings, Plus, ChevronRight, ArrowRightLeft } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
 import { Colors } from '@/constants/colors';
@@ -225,22 +225,33 @@ export default function WalletScreen() {
           contentContainerStyle={styles.list}
           ListHeaderComponent={<Text style={styles.sectionLabel}>ADDRESSES</Text>}
           ListFooterComponent={
-            <TouchableOpacity
-              style={styles.addBtn}
-              onPress={() => addAddress()}
-              disabled={isAddingAddress}
-              activeOpacity={0.8}
-              testID="add-address-btn"
-            >
-              {isAddingAddress ? (
-                <ActivityIndicator size="small" color={Colors.bitcoin} />
-              ) : (
-                <>
-                  <Plus size={17} color={Colors.bitcoin} />
-                  <Text style={styles.addBtnText}>Add New Address</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={styles.footerBtns}>
+              <TouchableOpacity
+                style={styles.addBtn}
+                onPress={() => addAddress()}
+                disabled={isAddingAddress}
+                activeOpacity={0.8}
+                testID="add-address-btn"
+              >
+                {isAddingAddress ? (
+                  <ActivityIndicator size="small" color={Colors.bitcoin} />
+                ) : (
+                  <>
+                    <Plus size={17} color={Colors.bitcoin} />
+                    <Text style={styles.addBtnText}>Add New Address</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.sweepBtn}
+                onPress={() => router.push('/sweep')}
+                activeOpacity={0.8}
+                testID="sweep-btn"
+              >
+                <ArrowRightLeft size={17} color='#FFF' />
+                <Text style={styles.sweepBtnText}>Sweep All Funds</Text>
+              </TouchableOpacity>
+            </View>
           }
           showsVerticalScrollIndicator={false}
         />
@@ -373,4 +384,20 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   addBtnText: { fontSize: 15, fontWeight: '700', color: Colors.bitcoin },
+  footerBtns: { gap: 10 },
+  sweepBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.bitcoin,
+    borderRadius: 16,
+    paddingVertical: 16,
+    shadowColor: Colors.bitcoin,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  sweepBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
 });
