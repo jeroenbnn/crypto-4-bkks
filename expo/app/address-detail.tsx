@@ -27,7 +27,7 @@ export default function AddressDetailScreen() {
   const [aliasSaved, setAliasSaved] = useState(false);
 
   const index = parseInt(idx ?? '0', 10);
-  const address = addresses[index];
+  const address = addresses.find((a) => a.index === index);
 
   useEffect(() => {
     if (address) {
