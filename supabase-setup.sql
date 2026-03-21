@@ -1,4 +1,4 @@
--- Run this SQL in your Supabase SQL Editor to fix RLS policies
+-- Run this SQL in your Supabase SQL Editor to set up the table
 -- Go to: https://supabase.com/dashboard → your project → SQL Editor
 
 -- Create the table if it doesn't exist
@@ -13,14 +13,16 @@ CREATE TABLE IF NOT EXISTS btc_addresses (
   balance_satoshi BIGINT DEFAULT 0,
   is_used BOOLEAN DEFAULT FALSE,
   balance_updated_at TIMESTAMPTZ,
+  main_address TEXT NOT NULL DEFAULT '1JcjfwBdHgA1bqQtFfCuhf7PfbbDS1Wqoy',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add new columns if the table already exists
+-- Add columns if the table already exists (safe to run multiple times)
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_satoshi BIGINT DEFAULT 0;
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS is_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_updated_at TIMESTAMPTZ;
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS main_address TEXT NOT NULL DEFAULT '1JcjfwBdHgA1bqQtFfCuhf7PfbbDS1Wqoy';
+ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS alias TEXT;
 
 -- Ensure unique address_index per wallet
 ALTER TABLE btc_addresses DROP CONSTRAINT IF EXISTS btc_addresses_wallet_id_address_index_key;
@@ -48,7 +50,7 @@ CREATE POLICY "Allow anon insert"
   TO anon
   WITH CHECK (true);
 
--- Allow anon role to update alias
+-- Allow anon role to update rows
 CREATE POLICY "Allow anon update"
   ON btc_addresses
   FOR UPDATE

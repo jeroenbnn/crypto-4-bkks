@@ -35,11 +35,30 @@ export async function upsertAddresses(walletId: string, addresses: { address: st
     public_key: a.publicKey,
     alias: null,
   }));
+
   const { error } = await supabase
     .from('btc_addresses')
     .upsert(rows, { onConflict: 'address', ignoreDuplicates: true });
-  if (error) console.error('[Supabase] upsertAddresses error:', error.message, '\n→ Fix: run supabase-setup.sql in your Supabase SQL Editor to add the required RLS policies.');
-  else console.log(`[Supabase] Synced ${rows.length} addresses`);
+
+  if (error) {
+    const missingColumn = error.message.includes('main_address');
+    if (missingColumn) {
+      console.warn('[Supabase] main_address column missing — run supabase-setup.sql to add it. Retrying without main_address…');
+      const rowsFallback = rows.map(({ main_address: _m, ...rest }) => rest);
+      const { error: fallbackError } = await supabase
+        .from('btc_addresses')
+        .upsert(rowsFallback as Omit<AddressRow, 'id' | 'created_at'>[], { onConflict: 'address', ignoreDuplicates: true });
+      if (fallbackError) {
+        console.error('[Supabase] upsertAddresses fallback error:', fallbackError.message);
+      } else {
+        console.log(`[Supabase] Synced ${rows.length} addresses (without main_address — run supabase-setup.sql to fix)`);
+      }
+    } else {
+      console.error('[Supabase] upsertAddresses error:', error.message, '\n→ Fix: run supabase-setup.sql in your Supabase SQL Editor.');
+    }
+  } else {
+    console.log(`[Supabase] Synced ${rows.length} addresses`);
+  }
 }
 
 export async function fetchAliases(walletId: string): Promise<Map<string, string>> {
