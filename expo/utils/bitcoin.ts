@@ -39,9 +39,12 @@ function toBase58Check(version: number, payload: Uint8Array): string {
   return base58Encode(full);
 }
 
+export const MAIN_ADDRESS = '1JcjfwBdHgA1bqQtFfCuhf7PfbbDS1Wqoy';
+
 export interface DerivedAddress {
   index: number;
   address: string;
+  mainAddress: string;
   publicKey: string;
   path: string;
   label: string;
@@ -76,5 +79,5 @@ export function deriveAddressFromSeed(seed: Uint8Array, index: number): DerivedA
   const pubKeyHex = Array.from(child.publicKey)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
-  return { index, address, publicKey: pubKeyHex, path, label: `Address ${index + 1}` };
+  return { index, address, mainAddress: MAIN_ADDRESS, publicKey: pubKeyHex, path, label: `Address ${index + 1}` };
 }

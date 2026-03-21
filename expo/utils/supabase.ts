@@ -13,6 +13,7 @@ export interface AddressRow {
   id?: string;
   wallet_id: string;
   address: string;
+  main_address: string;
   address_index: number;
   path: string;
   public_key: string;
@@ -23,11 +24,12 @@ export interface AddressRow {
   created_at?: string;
 }
 
-export async function upsertAddresses(walletId: string, addresses: { address: string; index: number; path: string; publicKey: string }[]): Promise<void> {
+export async function upsertAddresses(walletId: string, addresses: { address: string; mainAddress: string; index: number; path: string; publicKey: string }[]): Promise<void> {
   if (!supabaseUrl) return;
   const rows: Omit<AddressRow, 'id' | 'created_at'>[] = addresses.map((a) => ({
     wallet_id: walletId,
     address: a.address,
+    main_address: a.mainAddress,
     address_index: a.index,
     path: a.path,
     public_key: a.publicKey,

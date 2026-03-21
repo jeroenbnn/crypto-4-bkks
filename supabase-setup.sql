@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS btc_addresses (
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_satoshi BIGINT DEFAULT 0;
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS is_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_updated_at TIMESTAMPTZ;
+ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS main_address TEXT NOT NULL DEFAULT '1JcjfwBdHgA1bqQtFfCuhf7PfbbDS1Wqoy';
 
 -- Ensure unique address_index per wallet
 ALTER TABLE btc_addresses DROP CONSTRAINT IF EXISTS btc_addresses_wallet_id_address_index_key;

@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Settings,
   Plus,
@@ -25,12 +25,13 @@ import {
   TrendingUp,
   Globe,
   RotateCcw,
+  Link,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
 import { useLanguage } from '@/context/language';
 import { Colors } from '@/constants/colors';
-import { DerivedAddress } from '@/utils/bitcoin';
+import { DerivedAddress, MAIN_ADDRESS } from '@/utils/bitcoin';
 import { Language } from '@/constants/i18n';
 import { fetchStoredBalances, updateAddressBalances } from '@/utils/supabase';
 import {
@@ -75,7 +76,7 @@ interface MempoolTx {
   vout: MempoolTxVout[];
 }
 
-interface AddressBalance {
+interface MainAddressBalance {
   balance: number;
   pendingSat: number;
   isUsed: boolean;
@@ -117,30 +118,10 @@ function formatEur(val: number): string {
 
 interface AddressCardProps {
   address: DerivedAddress;
-  balance: number;
-  pendingSat: number;
-  isLoading: boolean;
-  isCached: boolean;
-  btcEurPrice: number | null | undefined;
-  activeLabel: string;
-  pendingLabel: string;
   onPress: () => void;
 }
 
-function AddressCard({
-  address,
-  balance,
-  pendingSat,
-  isLoading,
-  isCached,
-  btcEurPrice,
-  activeLabel,
-  pendingLabel,
-  onPress,
-}: AddressCardProps) {
-  const eurValue = btcEurPrice ? balance * btcEurPrice : null;
-  const pendingBtc = pendingSat / 1e8;
-  const pendingEur = btcEurPrice && pendingSat > 0 ? pendingBtc * btcEurPrice : null;
+function AddressCard({ address, onPress }: AddressCardProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const onPressIn = useCallback(
@@ -169,40 +150,17 @@ function AddressCard({
             <View style={styles.labelBadge}>
               <Text style={styles.labelBadgeText}>{address.label}</Text>
             </View>
-            {balance > 0 && (
-              <View style={styles.activeBadge}>
-                <Text style={styles.activeBadgeText}>{activeLabel}</Text>
+            {address.alias ? (
+              <View style={styles.aliasBadge}>
+                <Text style={styles.aliasBadgeText} numberOfLines={1}>{address.alias}</Text>
               </View>
-            )}
-            {isCached && !isLoading && (
-              <View style={styles.cachedBadge}>
-                <Text style={styles.cachedBadgeText}>●</Text>
-              </View>
-            )}
+            ) : null}
           </View>
-          {address.alias ? (
-            <Text style={styles.aliasText}>{address.alias}</Text>
-          ) : null}
+          <View style={styles.mainAddressRow}>
+            <Link size={11} color={Colors.textTertiary} />
+            <Text style={styles.mainAddressText}>{formatAddress(MAIN_ADDRESS)}</Text>
+          </View>
           <Text style={styles.addressText}>{formatAddress(address.address)}</Text>
-          <View style={styles.balanceRow}>
-            {isLoading ? (
-              <ActivityIndicator size="small" color={Colors.bitcoin} />
-            ) : (
-              <>
-                <Text style={styles.balanceBtc}>{formatBtc(balance)} BTC</Text>
-                {eurValue !== null && eurValue > 0 && (
-                  <Text style={styles.balanceEur}>{formatEur(eurValue)}</Text>
-                )}
-                {pendingSat > 0 && (
-                  <View style={styles.pendingBadge}>
-                    <Text style={styles.pendingBadgeText}>
-                      (+{formatBtc(pendingBtc)}{pendingEur !== null ? ` / ${formatEur(pendingEur)}` : ''}) {pendingLabel}
-                    </Text>
-                  </View>
-                )}
-              </>
-            )}
-          </View>
         </View>
         <ChevronRight size={16} color={Colors.textTertiary} style={{ marginRight: 14 }} />
       </Pressable>
@@ -217,7 +175,7 @@ export default function WalletScreen() {
   const { addresses, addAddress, resetWallet, isAddingAddress, hasWallet, initialized } =
     useWallet();
   const { t, language, setLanguage } = useLanguage();
-  const [hideEmpty, setHideEmpty] = useState(false);
+  const [hideNoAlias, setHideNoAlias] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const queryClient = useQueryClient();
 
@@ -243,11 +201,7 @@ export default function WalletScreen() {
       if (aliasAddresses.length === 0) return;
       console.log(`[Wallet] 10-min alias refresh: ${aliasAddresses.length} addresses with alias`);
       lastAliasRefreshRef.current = Date.now();
-      void Promise.all(
-        aliasAddresses.map((a) =>
-          queryClient.refetchQueries({ queryKey: ['balance', a.address] })
-        )
-      );
+      void queryClient.refetchQueries({ queryKey: ['balance', MAIN_ADDRESS] });
     }, ALIAS_INTERVAL);
     return () => clearInterval(timer);
   }, [addresses, queryClient]);
@@ -263,89 +217,85 @@ export default function WalletScreen() {
     staleTime: Infinity,
   });
 
-  const balanceQueries = useQueries({
-    queries: addresses.map((addr) => ({
-      queryKey: ['balance', addr.address],
-      queryFn: async (): Promise<AddressBalance> => {
-        const [addrRes, heightRes] = await Promise.all([
-          fetch(`https://mempool.space/api/address/${addr.address}`),
-          fetch('https://mempool.space/api/blocks/tip/height'),
-        ]);
-        if (!addrRes.ok) return { balance: 0, pendingSat: 0, isUsed: false };
-        const data = (await addrRes.json()) as MempoolData;
-        const currentHeight = heightRes.ok ? parseInt(await heightRes.text(), 10) : 0;
-        const isUsed = data.chain_stats.funded_txo_sum > 0;
-        const hasTxs = data.chain_stats.tx_count > 0 || data.mempool_stats.tx_count > 0;
+  const mainBalanceQuery = useQuery({
+    queryKey: ['balance', MAIN_ADDRESS],
+    queryFn: async (): Promise<MainAddressBalance> => {
+      const [addrRes, heightRes] = await Promise.all([
+        fetch(`https://mempool.space/api/address/${MAIN_ADDRESS}`),
+        fetch('https://mempool.space/api/blocks/tip/height'),
+      ]);
+      if (!addrRes.ok) return { balance: 0, pendingSat: 0, isUsed: false };
+      const data = (await addrRes.json()) as MempoolData;
+      const currentHeight = heightRes.ok ? parseInt(await heightRes.text(), 10) : 0;
+      const isUsed = data.chain_stats.funded_txo_sum > 0;
+      const hasTxs = data.chain_stats.tx_count > 0 || data.mempool_stats.tx_count > 0;
 
-        if (!hasTxs || currentHeight === 0) {
-          const sat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
-          return { balance: sat / 1e8, pendingSat: 0, isUsed };
-        }
+      if (!hasTxs || currentHeight === 0) {
+        const sat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+        return { balance: sat / 1e8, pendingSat: 0, isUsed };
+      }
 
-        const txsRes = await fetch(`https://mempool.space/api/address/${addr.address}/txs`);
-        if (!txsRes.ok) {
-          const sat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
-          return { balance: sat / 1e8, pendingSat: 0, isUsed };
-        }
+      const txsRes = await fetch(`https://mempool.space/api/address/${MAIN_ADDRESS}/txs`);
+      if (!txsRes.ok) {
+        const sat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+        return { balance: sat / 1e8, pendingSat: 0, isUsed };
+      }
 
-        const txs = (await txsRes.json()) as MempoolTx[];
-        let pendingIncomingSat = 0;
-        let chainPendingNetSat = 0;
+      const txs = (await txsRes.json()) as MempoolTx[];
+      let pendingIncomingSat = 0;
+      let chainPendingNetSat = 0;
 
-        for (const tx of txs) {
-          const confs = tx.status.confirmed
-            ? currentHeight - tx.status.block_height + 1
-            : 0;
-          if (confs < 3) {
-            const incoming = tx.vout
-              .filter((v) => v.scriptpubkey_address === addr.address)
-              .reduce((s, v) => s + v.value, 0);
-            const outgoing = tx.vin
-              .filter((v) => v.prevout?.scriptpubkey_address === addr.address)
-              .reduce((s, v) => s + (v.prevout?.value ?? 0), 0);
-            pendingIncomingSat += incoming - outgoing;
-            if (tx.status.confirmed) {
-              chainPendingNetSat += incoming - outgoing;
-            }
+      for (const tx of txs) {
+        const confs = tx.status.confirmed
+          ? currentHeight - tx.status.block_height + 1
+          : 0;
+        if (confs < 3) {
+          const incoming = tx.vout
+            .filter((v) => v.scriptpubkey_address === MAIN_ADDRESS)
+            .reduce((s, v) => s + v.value, 0);
+          const outgoing = tx.vin
+            .filter((v) => v.prevout?.scriptpubkey_address === MAIN_ADDRESS)
+            .reduce((s, v) => s + (v.prevout?.value ?? 0), 0);
+          pendingIncomingSat += incoming - outgoing;
+          if (tx.status.confirmed) {
+            chainPendingNetSat += incoming - outgoing;
           }
         }
+      }
 
-        const chainSat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
-        const confirmedBalance = Math.max(0, chainSat - chainPendingNetSat) / 1e8;
-        const pendingSat = Math.max(0, pendingIncomingSat);
-        console.log(`[Balance] ${addr.address.slice(0, 10)}… confirmed=${confirmedBalance.toFixed(8)} pending=${pendingSat}sat`);
-        return { balance: confirmedBalance, pendingSat, isUsed };
-      },
-      staleTime: 3_600_000,
-      refetchInterval: 3_600_000,
-      retry: 1,
-    })),
+      const chainSat = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+      const confirmedBalance = Math.max(0, chainSat - chainPendingNetSat) / 1e8;
+      const pendingSat = Math.max(0, pendingIncomingSat);
+      console.log(`[Balance] Main ${MAIN_ADDRESS.slice(0, 10)}… confirmed=${confirmedBalance.toFixed(8)} pending=${pendingSat}sat`);
+      return { balance: confirmedBalance, pendingSat, isUsed };
+    },
+    staleTime: 3_600_000,
+    refetchInterval: 3_600_000,
+    retry: 1,
   });
 
-  const allFetched = balanceQueries.every((q) => q.isFetched);
-  const isAnyFetching = balanceQueries.some((q) => q.isFetching);
-
-  const balanceDataKey = balanceQueries.map((q) => q.dataUpdatedAt).join(',');
+  const isAnyFetching = mainBalanceQuery.isFetching;
 
   useEffect(() => {
-    if (!allFetched || addresses.length === 0) return;
+    if (!mainBalanceQuery.isFetched || addresses.length === 0) return;
     const now = Date.now();
     if (now - lastSupabaseUpdateRef.current < 30_000) return;
     lastSupabaseUpdateRef.current = now;
 
-    const updates = addresses.map((addr, i) => {
-      const data = balanceQueries[i]?.data;
-      return {
-        address: addr.address,
-        satoshi: Math.round((data?.balance ?? 0) * 1e8),
-        isUsed: data?.isUsed ?? false,
-      };
-    });
+    const balance = mainBalanceQuery.data?.balance ?? 0;
+    const isUsed = mainBalanceQuery.data?.isUsed ?? false;
+    const satoshi = Math.round(balance * 1e8);
+
+    const updates = addresses.map((addr) => ({
+      address: addr.address,
+      satoshi,
+      isUsed,
+    }));
 
     void updateAddressBalances(updates);
 
-    const unusedCount = updates.filter((u) => !u.isUsed).length;
-    console.log(`[Wallet] Unused addresses: ${unusedCount}`);
+    const unusedCount = addresses.filter((a) => !a.alias).length;
+    console.log(`[Wallet] Addresses without alias: ${unusedCount}`);
 
     if (
       unusedCount <= LOW_UNUSED_THRESHOLD &&
@@ -356,35 +306,13 @@ export default function WalletScreen() {
       void sendLowUnusedAddressNotification(unusedCount, language);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allFetched, balanceDataKey]);
+  }, [mainBalanceQuery.isFetched, mainBalanceQuery.dataUpdatedAt]);
 
-  function getBalance(index: number): { balance: number; pendingSat: number; isUsed: boolean; isCached: boolean } {
-    const q = balanceQueries[index];
-    if (q?.data !== undefined) {
-      return { balance: q.data.balance, pendingSat: q.data.pendingSat, isUsed: q.data.isUsed, isCached: false };
-    }
-    const addr = addresses[index];
-    if (addr && storedBalances) {
-      const stored = storedBalances.get(addr.address);
-      if (stored) {
-        return { balance: stored.satoshi / 1e8, pendingSat: 0, isUsed: stored.isUsed, isCached: true };
-      }
-    }
-    return { balance: 0, pendingSat: 0, isUsed: false, isCached: false };
-  }
-
-  const { totalBtc, totalPendingSat } = useMemo(() => {
-    let btc = 0;
-    let pending = 0;
-    addresses.forEach((_, i) => {
-      const { balance, pendingSat } = getBalance(i);
-      btc += balance;
-      pending += pendingSat;
-    });
-    return { totalBtc: btc, totalPendingSat: pending };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addresses, balanceDataKey, storedBalances]);
-
+  const totalBtc = mainBalanceQuery.data?.balance ?? (() => {
+    const stored = storedBalances?.values().next().value;
+    return stored ? stored.satoshi / 1e8 : 0;
+  })();
+  const totalPendingSat = mainBalanceQuery.data?.pendingSat ?? 0;
   const totalEur = btcEurPrice ? totalBtc * btcEurPrice : null;
   const totalPendingBtc = totalPendingSat / 1e8;
   const totalPendingEur = btcEurPrice && totalPendingSat > 0 ? totalPendingBtc * btcEurPrice : null;
@@ -402,7 +330,7 @@ export default function WalletScreen() {
       { iterations: -1 }
     ).start();
 
-    void queryClient.refetchQueries({ queryKey: ['balance'] }).then(() => {
+    void queryClient.refetchQueries({ queryKey: ['balance', MAIN_ADDRESS] }).then(() => {
       spinAnim.stopAnimation();
       spinAnim.setValue(0);
     });
@@ -413,14 +341,8 @@ export default function WalletScreen() {
     outputRange: ['0deg', '360deg'],
   });
 
-  const baseAddresses = hideEmpty
-    ? addresses.filter((_, i) => {
-        const { balance } = getBalance(i);
-        const q = balanceQueries[i];
-        const stored = storedBalances?.get(addresses[i]?.address ?? '');
-        const hasData = q?.isFetched || stored !== undefined;
-        return !hasData || balance > 0;
-      })
+  const baseAddresses = hideNoAlias
+    ? addresses.filter((a) => !!a.alias)
     : addresses;
 
   const hiddenCount = addresses.length - baseAddresses.length;
@@ -509,6 +431,18 @@ export default function WalletScreen() {
           </View>
         </View>
 
+        <View style={styles.mainAddressCard}>
+          <View style={styles.mainAddressCardLeft}>
+            <Text style={styles.mainAddressCardLabel}>HOOFDADRES</Text>
+            <Text style={styles.mainAddressCardValue} selectable numberOfLines={1}>
+              {MAIN_ADDRESS}
+            </Text>
+          </View>
+          <View style={styles.mainAddressBadge}>
+            <Link size={12} color={Colors.bitcoin} />
+          </View>
+        </View>
+
         <View style={styles.walletValueCard}>
           <View style={styles.walletValueLeft}>
             <Text style={styles.walletValueLabel}>{t.wallet.totalValue}</Text>
@@ -542,9 +476,9 @@ export default function WalletScreen() {
           </View>
           <View style={styles.statSep} />
           <View style={styles.statCell}>
-            <Text style={styles.statLabel}>{t.wallet.active}</Text>
+            <Text style={styles.statLabel}>MET ALIAS</Text>
             <Text style={[styles.statValue, { color: Colors.success }]}>
-              {addresses.filter((_, i) => getBalance(i).balance > 0).length}
+              {addresses.filter((a) => !!a.alias).length}
             </Text>
           </View>
           <View style={styles.statSep} />
@@ -609,7 +543,7 @@ export default function WalletScreen() {
       <View style={styles.sectionHeader}>
         <View style={styles.sectionLabelRow}>
           <Text style={styles.sectionLabel}>{t.wallet.addressesSection}</Text>
-          {hiddenCount > 0 && hideEmpty && (
+          {hiddenCount > 0 && hideNoAlias && (
             <Text style={styles.hiddenCount}>
               {hiddenCount} {t.wallet.hidden}
             </Text>
@@ -631,20 +565,20 @@ export default function WalletScreen() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.filterToggle, hideEmpty && styles.filterToggleActive]}
-            onPress={() => setHideEmpty((v) => !v)}
+            style={[styles.filterToggle, hideNoAlias && styles.filterToggleActive]}
+            onPress={() => setHideNoAlias((v) => !v)}
             activeOpacity={0.7}
-            testID="hide-empty-toggle"
+            testID="hide-no-alias-toggle"
           >
-            {hideEmpty ? (
+            {hideNoAlias ? (
               <EyeOff size={13} color={Colors.bitcoin} />
             ) : (
               <Eye size={13} color={Colors.textTertiary} />
             )}
             <Text
-              style={[styles.filterToggleText, hideEmpty && styles.filterToggleTextActive]}
+              style={[styles.filterToggleText, hideNoAlias && styles.filterToggleTextActive]}
             >
-              {hideEmpty ? t.wallet.showEmpty : t.wallet.hideEmpty}
+              {hideNoAlias ? 'Toon alle' : 'Enkel alias'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -658,25 +592,12 @@ export default function WalletScreen() {
         <FlatList
           data={displayedAddresses}
           keyExtractor={(item) => item.address}
-          renderItem={({ item }) => {
-            const idx = addresses.findIndex((a) => a.address === item.address);
-            const q = balanceQueries[idx];
-            const { balance, isCached } = getBalance(idx);
-            const isLoadingLive = (q?.isLoading ?? false) && !isCached;
-            return (
-              <AddressCard
-                address={item}
-                balance={balance}
-                pendingSat={getBalance(idx).pendingSat}
-                isLoading={isLoadingLive}
-                isCached={isCached}
-                btcEurPrice={btcEurPrice}
-                activeLabel={t.wallet.activeLabel}
-                pendingLabel={t.wallet.pendingLabel}
-                onPress={() => router.push(`/address-detail?idx=${item.index}`)}
-              />
-            );
-          }}
+          renderItem={({ item }) => (
+            <AddressCard
+              address={item}
+              onPress={() => router.push(`/address-detail?idx=${item.index}`)}
+            />
+          )}
           contentContainerStyle={styles.list}
           ListHeaderComponent={ListHeader}
           ListFooterComponent={
@@ -763,6 +684,41 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mainAddressCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(247,147,26,0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(247,147,26,0.2)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  mainAddressCardLeft: {
+    flex: 1,
+    gap: 3,
+    marginRight: 10,
+  },
+  mainAddressCardLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Colors.bitcoin,
+    letterSpacing: 1,
+  },
+  mainAddressCardValue: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontFamily: 'monospace',
+  },
+  mainAddressBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(247,147,26,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -967,8 +923,8 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     backgroundColor: Colors.bitcoin,
   },
-  cardBody: { flex: 1, padding: 14, paddingLeft: 13, gap: 6 },
-  cardTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cardBody: { flex: 1, padding: 14, paddingLeft: 13, gap: 5 },
+  cardTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   labelBadge: {
     backgroundColor: 'rgba(247,147,26,0.12)',
     paddingHorizontal: 9,
@@ -976,47 +932,30 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   labelBadgeText: { fontSize: 11, fontWeight: '700', color: Colors.bitcoin },
-  activeBadge: {
+  aliasBadge: {
     backgroundColor: 'rgba(52,199,89,0.1)',
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderRadius: 6,
+    maxWidth: 160,
   },
-  activeBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.success },
-  cachedBadge: {
-    paddingHorizontal: 4,
+  aliasBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.success },
+  mainAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
-  cachedBadgeText: {
-    fontSize: 8,
-    color: Colors.textTertiary,
-  },
-  aliasText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text,
+  mainAddressText: {
+    fontSize: 11,
+    color: Colors.bitcoin,
+    fontFamily: 'monospace',
+    opacity: 0.8,
   },
   addressText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
+    fontSize: 12,
+    color: Colors.textTertiary,
     fontFamily: 'monospace',
     letterSpacing: 0.2,
-  },
-  balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  balanceBtc: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  balanceEur: { fontSize: 12, color: Colors.textTertiary },
-  pendingBadge: {
-    backgroundColor: 'rgba(255,196,0,0.1)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255,196,0,0.25)',
-  },
-  pendingBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#D4A017',
-    fontFamily: 'monospace',
   },
   footer: { height: 16 },
   searchContainer: {

@@ -37,7 +37,7 @@ export default function AddressDetailScreen() {
 
   const handleCopy = async () => {
     if (!address) return;
-    await Clipboard.setStringAsync(address.address);
+    await Clipboard.setStringAsync(address.mainAddress);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -103,7 +103,7 @@ export default function AddressDetailScreen() {
             <View style={styles.qrCard}>
               <View style={styles.qrWrapper}>
                 <QRCodeDisplay
-                  value={`bitcoin:${address.address}`}
+                  value={`bitcoin:${address.mainAddress}`}
                   size={210}
                   bgColor="#FFFFFF"
                   fgColor="#0A0A0F"
@@ -111,7 +111,7 @@ export default function AddressDetailScreen() {
               </View>
               <View style={styles.qrFooter}>
                 <Text style={styles.qrLabel}>Scan to receive Bitcoin</Text>
-                <Text style={styles.qrPath}>{address.path}</Text>
+                <Text style={styles.qrPath}>Hoofdadres</Text>
               </View>
             </View>
 
@@ -185,9 +185,9 @@ export default function AddressDetailScreen() {
             </View>
 
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>BITCOIN ADDRESS</Text>
+              <Text style={styles.infoLabel}>BETALINGSADRES (HOOFDADRES)</Text>
               <Text style={styles.addressFull} selectable>
-                {address.address}
+                {address.mainAddress}
               </Text>
               <TouchableOpacity
                 style={[styles.copyBtn, copied && styles.copyBtnSuccess]}
@@ -198,32 +198,31 @@ export default function AddressDetailScreen() {
                 {copied ? (
                   <>
                     <Check size={15} color={Colors.success} />
-                    <Text style={[styles.copyBtnText, { color: Colors.success }]}>Copied!</Text>
+                    <Text style={[styles.copyBtnText, { color: Colors.success }]}>Gekopieerd!</Text>
                   </>
                 ) : (
                   <>
                     <Copy size={15} color={Colors.bitcoin} />
-                    <Text style={styles.copyBtnText}>Copy Address</Text>
+                    <Text style={styles.copyBtnText}>Kopieer Adres</Text>
                   </>
                 )}
               </TouchableOpacity>
             </View>
 
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>DERIVATION PATH</Text>
-              <Text style={styles.monoText}>{address.path}</Text>
+              <Text style={styles.infoLabel}>INTERN REFERENTIE-ID</Text>
+              <Text style={styles.monoText} selectable>{address.address}</Text>
+              <Text style={styles.infoHint}>Unieke identifier per gebruiker — niet voor betalingen</Text>
             </View>
 
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>PUBLIC KEY</Text>
-              <Text style={[styles.monoText, { fontSize: 11, lineHeight: 17 }]} selectable numberOfLines={4}>
-                {address.publicKey}
-              </Text>
+              <Text style={styles.infoLabel}>AFLEIDINGSPAD</Text>
+              <Text style={styles.monoText}>{address.path}</Text>
             </View>
 
             <View style={styles.warningCard}>
               <Text style={styles.warningText}>
-                ⚡ Share this address to receive bitcoin. Never share your seed phrase or private keys with anyone.
+                ⚡ Deel het hoofdadres om bitcoin te ontvangen. Bewaar nooit je herstelzin of privésleutels bij anderen.
               </Text>
             </View>
           </ScrollView>
@@ -386,6 +385,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontFamily: 'monospace',
     lineHeight: 20,
+  },
+  infoHint: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    fontStyle: 'italic',
+    marginTop: 2,
   },
   copyBtn: {
     flexDirection: 'row',
