@@ -51,7 +51,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
           const removedSet = new Set<number>(storedRemoved ? (JSON.parse(storedRemoved) as number[]) : []);
 
           const allDerived = Array.from({ length: count }, (_, i) =>
-            deriveAddressFromSeed(derivedSeed, i)
+            deriveAddressFromSeed(derivedSeed, i + 1)
           );
           const activeAddresses = allDerived.filter((a) => !removedSet.has(a.index));
 
@@ -77,7 +77,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       const newSeed = await getMnemonicSeed(newMnemonic);
       seedRef.current = newSeed;
       const derivedAddresses = Array.from({ length: DEFAULT_ADDRESS_COUNT }, (_, i) =>
-        deriveAddressFromSeed(newSeed, i)
+        deriveAddressFromSeed(newSeed, i + 1)
       );
       await AsyncStorage.setItem(MNEMONIC_KEY, newMnemonic);
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(DEFAULT_ADDRESS_COUNT));
@@ -101,7 +101,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       const newSeed = await getMnemonicSeed(cleaned);
       seedRef.current = newSeed;
       const derivedAddresses = Array.from({ length: DEFAULT_ADDRESS_COUNT }, (_, i) =>
-        deriveAddressFromSeed(newSeed, i)
+        deriveAddressFromSeed(newSeed, i + 1)
       );
       await AsyncStorage.setItem(MNEMONIC_KEY, cleaned);
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(DEFAULT_ADDRESS_COUNT));
@@ -126,7 +126,8 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       const storedRemoved = await AsyncStorage.getItem(REMOVED_INDICES_KEY);
       const removedSet = new Set<number>(storedRemoved ? (JSON.parse(storedRemoved) as number[]) : []);
       const totalCount = storedCount ? parseInt(storedCount, 10) : addressesRef.current.length;
-      const newAddress = deriveAddressFromSeed(seed, totalCount);
+      const newIndex = totalCount + 1;
+      const newAddress = deriveAddressFromSeed(seed, newIndex);
       const newCount = totalCount + 1;
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(newCount));
       await upsertAddresses(WALLET_ID, [newAddress]);

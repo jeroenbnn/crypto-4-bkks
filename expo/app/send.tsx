@@ -26,6 +26,7 @@ import {
   sendPartialAmount,
   broadcastTransaction,
   SendEstimate,
+  estimateFee,
 } from '@/utils/sweep';
 
 const FEE_PRESETS = [
@@ -59,6 +60,7 @@ export default function SendScreen() {
   const [txid, setTxid] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [txidCopied, setTxidCopied] = useState(false);
+  const [isLoadingMax, setIsLoadingMax] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const successScale = useRef(new Animated.Value(0.6)).current;
@@ -79,10 +81,34 @@ export default function SendScreen() {
 
   const parsedAmountSats = Math.round(parseFloat(amountBtc || '0') * 1e8);
 
-  const handleSetMax = () => {
+  const handleSetMax = async () => {
     if (totalAvailable > 0) {
-      const maxSats = totalAvailable;
-      setAmountBtc((maxSats / 1e8).toFixed(8));
+      const roughFee = estimateFee(Math.max(1, addresses.length), selectedFee) + 34;
+      const maxSats = Math.max(0, totalAvailable - roughFee);
+      if (maxSats >= 546) setAmountBtc((maxSats / 1e8).toFixed(8));
+      else setAmountBtc((totalAvailable / 1e8).toFixed(8));
+      return;
+    }
+    setIsLoadingMax(true);
+    try {
+      console.log('[Send] Max: fetching UTXOs...');
+      const allUTXOs = await gatherAllUTXOs(addresses);
+      const available = allUTXOs.reduce((s, a) => s + a.total, 0);
+      setTotalAvailable(available);
+      if (available > 0) {
+        const numInputs = allUTXOs.reduce((s, a) => s + a.utxos.length, 0);
+        const roughFee = estimateFee(numInputs, selectedFee) + 34;
+        const maxSats = Math.max(0, available - roughFee);
+        if (maxSats >= 546) setAmountBtc((maxSats / 1e8).toFixed(8));
+        else setAmountBtc((available / 1e8).toFixed(8));
+      } else {
+        setErrorMsg('Geen fondsen gevonden in de wallet.');
+      }
+    } catch (e) {
+      console.error('[Send] Max fetch error:', e);
+      setErrorMsg('Kon saldo niet ophalen.');
+    } finally {
+      setIsLoadingMax(false);
     }
   };
 
@@ -234,8 +260,16 @@ export default function SendScreen() {
                       />
                       <Text style={styles.amountUnit}>BTC</Text>
                     </View>
-                    <TouchableOpacity style={styles.maxBtn} onPress={handleSetMax}>
-                      <Text style={styles.maxBtnText}>MAX</Text>
+                    <TouchableOpacity
+                      style={[styles.maxBtn, isLoadingMax && { opacity: 0.6 }]}
+                      onPress={() => { void handleSetMax(); }}
+                      disabled={isLoadingMax}
+                    >
+                      {isLoadingMax ? (
+                        <ActivityIndicator size="small" color={Colors.bitcoin} />
+                      ) : (
+                        <Text style={styles.maxBtnText}>MAX</Text>
+                      )}
                     </TouchableOpacity>
                   </View>
                   {parsedAmountSats > 0 && (

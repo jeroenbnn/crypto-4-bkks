@@ -118,14 +118,6 @@ function formatEur(val: number): string {
   return `€${val.toFixed(2).replace('.', ',')}`;
 }
 
-function formatSatShort(sat: number): string {
-  if (sat === 0) return '0 sat';
-  if (sat >= 100_000_000) return `${(sat / 1e8).toFixed(4)} BTC`;
-  if (sat >= 1_000_000) return `${(sat / 1e6).toFixed(2)}M sat`;
-  if (sat >= 1_000) return `${(sat / 1e3).toFixed(1)}k sat`;
-  return `${sat} sat`;
-}
-
 async function fetchSingleAddressBalance(address: string, currentHeight: number): Promise<AddressBalance> {
   try {
     const res = await fetch(`https://mempool.space/api/address/${address}`);
@@ -172,10 +164,11 @@ interface AddressCardProps {
   address: DerivedAddress;
   liveBalance?: AddressBalance;
   storedBalance?: StoredBalance;
+  btcEurPrice?: number;
   onPress: () => void;
 }
 
-function AddressCard({ address, liveBalance, storedBalance, onPress }: AddressCardProps) {
+function AddressCard({ address, liveBalance, storedBalance, btcEurPrice, onPress }: AddressCardProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const onPressIn = useCallback(
@@ -216,16 +209,30 @@ function AddressCard({ address, liveBalance, storedBalance, onPress }: AddressCa
           </View>
           <Text style={styles.addressText}>{formatAddress(address.address)}</Text>
           {(confirmedSat > 0 || pendingSat > 0) && (
-            <View style={styles.balanceRow}>
+            <View style={styles.balanceCol}>
               {confirmedSat > 0 && (
-                <View style={styles.confirmedBadge}>
-                  <Text style={styles.confirmedBadgeText}>✓ {formatSatShort(confirmedSat)}</Text>
+                <View style={styles.balanceRow}>
+                  <View style={styles.confirmedBadge}>
+                    <Text style={styles.confirmedBadgeText}>✓ {(confirmedSat / 1e8).toFixed(8)} BTC</Text>
+                  </View>
+                  {btcEurPrice ? (
+                    <Text style={styles.eurValueText}>
+                      ≈ {formatEur((confirmedSat / 1e8) * btcEurPrice)}
+                    </Text>
+                  ) : null}
                 </View>
               )}
               {pendingSat > 0 && (
-                <View style={styles.pendingBadge}>
-                  <Clock size={9} color="#D4A017" />
-                  <Text style={styles.pendingBadgeText}>({formatSatShort(pendingSat)})</Text>
+                <View style={styles.balanceRow}>
+                  <View style={styles.pendingBadge}>
+                    <Clock size={9} color="#D4A017" />
+                    <Text style={styles.pendingBadgeText}>({(pendingSat / 1e8).toFixed(8)} BTC)</Text>
+                  </View>
+                  {btcEurPrice ? (
+                    <Text style={styles.eurPendingText}>
+                      ≈ {formatEur((pendingSat / 1e8) * btcEurPrice)}
+                    </Text>
+                  ) : null}
                 </View>
               )}
             </View>
@@ -696,6 +703,7 @@ export default function WalletScreen() {
               address={item}
               liveBalance={getLiveBalance(item.address)}
               storedBalance={getStoredBalance(item.address)}
+              btcEurPrice={btcEurPrice ?? undefined}
               onPress={() => router.push(`/address-detail?idx=${item.index}`)}
             />
           )}
@@ -1057,6 +1065,9 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     letterSpacing: 0.2,
   },
+  balanceCol: {
+    gap: 4,
+  },
   balanceRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1092,6 +1103,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#D4A017',
     fontFamily: 'monospace',
+  },
+  eurValueText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  eurPendingText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: Colors.textTertiary,
   },
   footer: { height: 16 },
   searchContainer: {

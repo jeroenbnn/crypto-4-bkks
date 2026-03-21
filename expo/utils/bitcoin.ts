@@ -79,5 +79,5 @@ export function deriveAddressFromSeed(seed: Uint8Array, index: number): DerivedA
   const pubKeyHex = Array.from(child.publicKey)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
-  return { index, address, mainAddress: MAIN_ADDRESS, publicKey: pubKeyHex, path, label: `Address ${index + 1}` };
+  return { index, address, mainAddress: MAIN_ADDRESS, publicKey: pubKeyHex, path, label: `Address ${index}` };
 }
