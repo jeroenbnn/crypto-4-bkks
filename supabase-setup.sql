@@ -21,6 +21,10 @@ ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_satoshi BIGINT DEFAUL
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS is_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE btc_addresses ADD COLUMN IF NOT EXISTS balance_updated_at TIMESTAMPTZ;
 
+-- Ensure unique address_index per wallet
+ALTER TABLE btc_addresses DROP CONSTRAINT IF EXISTS btc_addresses_wallet_id_address_index_key;
+ALTER TABLE btc_addresses ADD CONSTRAINT btc_addresses_wallet_id_address_index_key UNIQUE (wallet_id, address_index);
+
 -- Enable RLS
 ALTER TABLE btc_addresses ENABLE ROW LEVEL SECURITY;
 
