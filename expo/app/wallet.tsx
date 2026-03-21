@@ -350,8 +350,17 @@ export default function WalletScreen() {
   }, [allBalancesQuery.isFetched, allBalancesQuery.dataUpdatedAt]);
 
   const mainBalance = mainAddressQuery.data;
-  const totalBtc = mainBalance ? mainBalance.satoshi / 1e8 : 0;
-  const totalPendingSat = mainBalance?.pendingSat ?? 0;
+  const derivedTotalSat = useMemo(
+    () => allBalancesQuery.data?.reduce((sum, b) => sum + b.satoshi, 0) ?? 0,
+    [allBalancesQuery.data]
+  );
+  const derivedPendingSat = useMemo(
+    () => allBalancesQuery.data?.reduce((sum, b) => sum + b.pendingSat, 0) ?? 0,
+    [allBalancesQuery.data]
+  );
+  const combinedSat = (mainBalance?.satoshi ?? 0) + derivedTotalSat;
+  const totalBtc = combinedSat / 1e8;
+  const totalPendingSat = (mainBalance?.pendingSat ?? 0) + derivedPendingSat;
   const totalEur = btcEurPrice ? totalBtc * btcEurPrice : null;
   const totalPendingBtc = totalPendingSat / 1e8;
   const totalPendingEur = btcEurPrice && totalPendingSat > 0 ? totalPendingBtc * btcEurPrice : null;

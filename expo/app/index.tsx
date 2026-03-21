@@ -43,6 +43,7 @@ export default function WelcomeScreen() {
   const [biometricType, setBiometricType] = useState<BiometricType>('none');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const prevHasWalletRef = useRef(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
@@ -56,11 +57,19 @@ export default function WelcomeScreen() {
 
   useEffect(() => {
     if (initialized && hasWallet) {
+      const wasLocked = !prevHasWalletRef.current;
+      prevHasWalletRef.current = true;
       setView('locked');
+      if (wasLocked) {
+        lockFadeAnim.setValue(0);
+        lockScaleAnim.setValue(0.9);
+      }
       Animated.parallel([
         Animated.timing(lockFadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
         Animated.spring(lockScaleAnim, { toValue: 1, useNativeDriver: true, speed: 8, bounciness: 6 }),
       ]).start();
+    } else if (initialized && !hasWallet) {
+      prevHasWalletRef.current = false;
     }
   }, [initialized, hasWallet, lockFadeAnim, lockScaleAnim]);
 
