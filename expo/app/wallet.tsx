@@ -9,6 +9,7 @@ import {
   Alert,
   Animated,
   Pressable,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -175,6 +176,7 @@ export default function WalletScreen() {
     useWallet();
   const { t, language, setLanguage } = useLanguage();
   const [hideEmpty, setHideEmpty] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const queryClient = useQueryClient();
 
   const spinAnim = useRef(new Animated.Value(0)).current;
@@ -305,7 +307,7 @@ export default function WalletScreen() {
     outputRange: ['0deg', '360deg'],
   });
 
-  const displayedAddresses = hideEmpty
+  const baseAddresses = hideEmpty
     ? addresses.filter((_, i) => {
         const { balance } = getBalance(i);
         const q = balanceQueries[i];
@@ -315,7 +317,17 @@ export default function WalletScreen() {
       })
     : addresses;
 
-  const hiddenCount = addresses.length - displayedAddresses.length;
+  const hiddenCount = addresses.length - baseAddresses.length;
+
+  const displayedAddresses = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return baseAddresses;
+    return baseAddresses.filter((addr) => {
+      const aliasMatch = addr.alias ? addr.alias.toLowerCase().includes(q) : false;
+      const addressMatch = addr.address.toLowerCase().includes(q);
+      return aliasMatch || addressMatch;
+    });
+  }, [baseAddresses, searchQuery]);
 
   const handleExportAddresses = async () => {
     const lines = addresses.map((a) => `  "${a.address}",`).join('\n');
@@ -460,6 +472,29 @@ export default function WalletScreen() {
         </View>
       </LinearGradient>
 
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder={t.wallet.searchPlaceholder}
+          placeholderTextColor={Colors.textTertiary}
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+          testID="search-input"
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity
+            style={styles.searchClear}
+            onPress={() => setSearchQuery('')}
+            testID="search-clear"
+          >
+            <Text style={styles.searchClearText}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
       <View style={styles.sectionHeader}>
         <View style={styles.sectionLabelRow}>
           <Text style={styles.sectionLabel}>{t.wallet.addressesSection}</Text>
@@ -531,7 +566,16 @@ export default function WalletScreen() {
           }}
           contentContainerStyle={styles.list}
           ListHeaderComponent={ListHeader}
-          ListFooterComponent={<View style={styles.footer} />}
+          ListFooterComponent={
+            displayedAddresses.length === 0 && searchQuery.length > 0 ? (
+              <View style={styles.noResults}>
+                <Text style={styles.noResultsText}>{t.wallet.noResults}</Text>
+                <Text style={styles.noResultsQuery}>"{searchQuery}"</Text>
+              </View>
+            ) : (
+              <View style={styles.footer} />
+            )
+          }
           showsVerticalScrollIndicator={false}
         />
       </SafeAreaView>
@@ -838,4 +882,44 @@ const styles = StyleSheet.create({
   balanceBtc: { fontSize: 15, fontWeight: '700', color: Colors.text },
   balanceEur: { fontSize: 12, color: Colors.textTertiary },
   footer: { height: 16 },
+  searchContainer: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 14,
+    height: 42,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.text,
+    height: 42,
+  },
+  searchClear: {
+    padding: 4,
+  },
+  searchClearText: {
+    fontSize: 12,
+    color: Colors.textTertiary,
+    fontWeight: '700',
+  },
+  noResults: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    gap: 8,
+  },
+  noResultsText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  noResultsQuery: {
+    fontSize: 13,
+    color: Colors.textTertiary,
+  },
 });

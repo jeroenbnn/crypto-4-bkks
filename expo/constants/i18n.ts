@@ -30,6 +30,8 @@ export const translations = {
       refresh: 'Vernieuwen',
       refreshing: 'Vernieuwen...',
       lastUpdated: 'Bijgewerkt',
+      searchPlaceholder: 'Zoek op alias of adres...',
+      noResults: 'Geen adressen gevonden',
     },
     index: {
       yourKeys: 'Jouw sleutels. Jouw bitcoin.',
@@ -95,6 +97,8 @@ export const translations = {
       refresh: 'Actualiser',
       refreshing: 'Actualisation...',
       lastUpdated: 'Mis à jour',
+      searchPlaceholder: 'Rechercher par alias ou adresse...',
+      noResults: 'Aucune adresse trouvée',
     },
     index: {
       yourKeys: 'Vos clés. Votre bitcoin.',
@@ -160,6 +164,8 @@ export const translations = {
       refresh: 'Refresh',
       refreshing: 'Refreshing...',
       lastUpdated: 'Updated',
+      searchPlaceholder: 'Search by alias or address...',
+      noResults: 'No addresses found',
     },
     index: {
       yourKeys: 'Your keys. Your bitcoin.',
