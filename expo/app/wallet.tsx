@@ -243,7 +243,7 @@ const LANG_CYCLE: Language[] = ['nl', 'fr', 'en'];
 const WALLET_ID = 'BKKS';
 
 export default function WalletScreen() {
-  const { addresses, addAddress, resetWallet, isAddingAddress, hasWallet, initialized } =
+  const { addresses, addAddress, removeAddresses, resetWallet, isAddingAddress, isRemovingAddresses, hasWallet, initialized } =
     useWallet();
   const { t, language, setLanguage } = useLanguage();
   const [hideNoAlias, setHideNoAlias] = useState(false);
@@ -419,12 +419,47 @@ export default function WalletScreen() {
     void setLanguage(next);
   }, [language, setLanguage]);
 
+  const handleRemoveUnused = useCallback(() => {
+    const unusedIndices = addresses
+      .filter((addr) => {
+        const hasAlias = !!addr.alias;
+        if (hasAlias) return false;
+        const live = liveBalanceMap.get(addr.address);
+        const hasFunds = live ? (live.satoshi > 0 || live.pendingSat > 0) : false;
+        return !hasFunds;
+      })
+      .map((a) => a.index);
+
+    if (unusedIndices.length === 0) {
+      Alert.alert('Geen ongebruikte adressen', 'Alle adressen hebben een alias of saldo.');
+      return;
+    }
+
+    Alert.alert(
+      'Verwijder ongebruikte adressen',
+      `${unusedIndices.length} adres(sen) zonder alias en zonder saldo worden verwijderd. Dit kan niet ongedaan worden gemaakt.`,
+      [
+        { text: t.wallet.cancel, style: 'cancel' },
+        {
+          text: `Verwijder ${unusedIndices.length}`,
+          style: 'destructive',
+          onPress: () => removeAddresses(unusedIndices),
+        },
+      ]
+    );
+  }, [addresses, liveBalanceMap, removeAddresses, t.wallet.cancel]);
+
   const handleSettings = () => {
     Alert.alert(t.wallet.title, '', [
       { text: t.wallet.viewSeedPhrase, onPress: () => router.push('/seed-phrase') },
       {
         text: t.wallet.exportAddresses.replace('%d', String(addresses.length)),
         onPress: handleExportAddresses,
+      },
+      {
+        text: 'Verwijder ongebruikte adressen',
+        style: 'destructive',
+        onPress: handleRemoveUnused,
       },
       {
         text: t.wallet.resetWallet,
@@ -547,7 +582,7 @@ export default function WalletScreen() {
           <TouchableOpacity
             style={styles.addBtn}
             onPress={() => addAddress()}
-            disabled={isAddingAddress}
+            disabled={isAddingAddress || isRemovingAddresses}
             activeOpacity={0.8}
             testID="add-address-btn"
           >

@@ -9,10 +9,11 @@ import {
   deriveAddressFromSeed,
   DerivedAddress,
 } from '@/utils/bitcoin';
-import { upsertAddresses, fetchAliases, updateAddressAlias } from '@/utils/supabase';
+import { upsertAddresses, fetchAliases, updateAddressAlias, deleteAddresses } from '@/utils/supabase';
 
 const MNEMONIC_KEY = 'btc_wallet_mnemonic';
 const ADDRESS_COUNT_KEY = 'btc_wallet_count';
+const REMOVED_INDICES_KEY = 'btc_wallet_removed_indices';
 const DEFAULT_ADDRESS_COUNT = 50;
 
 function mergeAliases(addresses: DerivedAddress[], aliasMap: Map<string, string>): DerivedAddress[] {
@@ -41,21 +42,26 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       try {
         const storedMnemonic = await AsyncStorage.getItem(MNEMONIC_KEY);
         const storedCount = await AsyncStorage.getItem(ADDRESS_COUNT_KEY);
+        const storedRemoved = await AsyncStorage.getItem(REMOVED_INDICES_KEY);
         if (storedMnemonic) {
           console.log('[Wallet] Loading existing wallet...');
           const derivedSeed = await getMnemonicSeed(storedMnemonic);
           seedRef.current = derivedSeed;
           const count = storedCount ? parseInt(storedCount, 10) : 1;
-          const derivedAddresses = Array.from({ length: count }, (_, i) =>
+          const removedSet = new Set<number>(storedRemoved ? (JSON.parse(storedRemoved) as number[]) : []);
+
+          const allDerived = Array.from({ length: count }, (_, i) =>
             deriveAddressFromSeed(derivedSeed, i)
           );
+          const activeAddresses = allDerived.filter((a) => !removedSet.has(a.index));
+
           setMnemonic(storedMnemonic);
 
-          await upsertAddresses(WALLET_ID, derivedAddresses);
+          await upsertAddresses(WALLET_ID, activeAddresses);
           const aliasMap = await fetchAliases(WALLET_ID);
-          const merged = mergeAliases(derivedAddresses, aliasMap);
+          const merged = mergeAliases(activeAddresses, aliasMap);
           setAddresses(merged);
-          console.log(`[Wallet] Loaded ${count} address(es)`);
+          console.log(`[Wallet] Loaded ${merged.length} address(es) (${removedSet.size} removed)`);
         }
       } catch (e) {
         console.error('[Wallet] Error loading wallet:', e);
@@ -75,6 +81,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       );
       await AsyncStorage.setItem(MNEMONIC_KEY, newMnemonic);
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(DEFAULT_ADDRESS_COUNT));
+      await AsyncStorage.removeItem(REMOVED_INDICES_KEY);
       await upsertAddresses(WALLET_ID, derivedAddresses);
       return { mnemonic: newMnemonic, addresses: derivedAddresses };
     },
@@ -98,6 +105,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       );
       await AsyncStorage.setItem(MNEMONIC_KEY, cleaned);
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(DEFAULT_ADDRESS_COUNT));
+      await AsyncStorage.removeItem(REMOVED_INDICES_KEY);
       await upsertAddresses(WALLET_ID, derivedAddresses);
       const aliasMap = await fetchAliases(WALLET_ID);
       const merged = mergeAliases(derivedAddresses, aliasMap);
@@ -114,15 +122,42 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     mutationFn: async () => {
       const seed = seedRef.current;
       if (!seed) throw new Error('No wallet loaded');
-      const current = addressesRef.current;
-      const newAddress = deriveAddressFromSeed(seed, current.length);
-      const updated = [...current, newAddress];
-      await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(updated.length));
+      const storedCount = await AsyncStorage.getItem(ADDRESS_COUNT_KEY);
+      const storedRemoved = await AsyncStorage.getItem(REMOVED_INDICES_KEY);
+      const removedSet = new Set<number>(storedRemoved ? (JSON.parse(storedRemoved) as number[]) : []);
+      const totalCount = storedCount ? parseInt(storedCount, 10) : addressesRef.current.length;
+      const newAddress = deriveAddressFromSeed(seed, totalCount);
+      const newCount = totalCount + 1;
+      await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(newCount));
       await upsertAddresses(WALLET_ID, [newAddress]);
-      return updated;
+      const allCurrent = [...addressesRef.current];
+      if (!removedSet.has(newAddress.index)) {
+        allCurrent.push(newAddress);
+      }
+      return allCurrent;
     },
     onSuccess: (updated) => setAddresses(updated),
     onError: (e) => console.error('[Wallet] Add address error:', e),
+  });
+
+  const removeAddressesMutation = useMutation({
+    mutationFn: async (indices: number[]) => {
+      if (indices.length === 0) return indices;
+      const toRemove = addressesRef.current.filter((a) => indices.includes(a.index));
+
+      const storedRemoved = await AsyncStorage.getItem(REMOVED_INDICES_KEY);
+      const existing = new Set<number>(storedRemoved ? (JSON.parse(storedRemoved) as number[]) : []);
+      for (const idx of indices) existing.add(idx);
+      await AsyncStorage.setItem(REMOVED_INDICES_KEY, JSON.stringify([...existing]));
+
+      await deleteAddresses(toRemove.map((a) => a.address));
+      console.log(`[Wallet] Removed ${indices.length} unused addresses`);
+      return indices;
+    },
+    onSuccess: (indices) => {
+      setAddresses((prev) => prev.filter((a) => !indices.includes(a.index)));
+    },
+    onError: (e) => console.error('[Wallet] Remove addresses error:', e),
   });
 
   const updateAliasMutation = useMutation({
@@ -142,7 +177,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
 
   const resetWalletMutation = useMutation({
     mutationFn: async () => {
-      await AsyncStorage.multiRemove([MNEMONIC_KEY, ADDRESS_COUNT_KEY]);
+      await AsyncStorage.multiRemove([MNEMONIC_KEY, ADDRESS_COUNT_KEY, REMOVED_INDICES_KEY]);
     },
     onSuccess: () => {
       seedRef.current = null;
@@ -163,11 +198,13 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     createWallet: createWalletMutation.mutate,
     importWallet: importWalletMutation.mutate,
     addAddress: addAddressMutation.mutate,
+    removeAddresses: removeAddressesMutation.mutate,
     updateAlias: updateAliasMutation.mutate,
     resetWallet: resetWalletMutation.mutate,
     isCreating: createWalletMutation.isPending,
     isImporting: importWalletMutation.isPending,
     isAddingAddress: addAddressMutation.isPending,
+    isRemovingAddresses: removeAddressesMutation.isPending,
     isUpdatingAlias: updateAliasMutation.isPending,
     importError: importWalletMutation.error?.message ?? null,
   }), [
@@ -181,6 +218,8 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     importWalletMutation.error,
     addAddressMutation.mutate,
     addAddressMutation.isPending,
+    removeAddressesMutation.mutate,
+    removeAddressesMutation.isPending,
     updateAliasMutation.mutate,
     updateAliasMutation.isPending,
     resetWalletMutation.mutate,

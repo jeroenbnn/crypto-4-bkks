@@ -116,6 +116,19 @@ export async function fetchStoredBalances(walletId: string): Promise<Map<string,
   return map;
 }
 
+export async function deleteAddresses(addresses: string[]): Promise<void> {
+  if (!supabaseUrl || addresses.length === 0) return;
+  const { error } = await supabase
+    .from('btc_addresses')
+    .delete()
+    .in('address', addresses);
+  if (error) {
+    console.error('[Supabase] deleteAddresses error:', error.message);
+  } else {
+    console.log(`[Supabase] Deleted ${addresses.length} addresses`);
+  }
+}
+
 export async function updateAddressBalances(
   updates: { address: string; satoshi: number; isUsed: boolean }[]
 ): Promise<void> {
