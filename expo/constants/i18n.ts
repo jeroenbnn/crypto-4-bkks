@@ -137,8 +137,8 @@ export const translations = {
   },
   en: {
     wallet: {
-      title: 'Bitcoin Wallet',
-      subtitle: 'BIP44 HD Wallet',
+      title: 'BKKS Wallet',
+      subtitle: 'Private wallet for the Belgian Children\'s Cancer Support Fund',
       totalValue: 'TOTAL VALUE',
       btcPrice: 'BTC PRICE',
       addresses: 'ADDRESSES',

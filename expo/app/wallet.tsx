@@ -212,12 +212,12 @@ export default function WalletScreen() {
 
   const { data: btcEurPrice } = useBtcEurPrice();
 
-  const walletId = addresses[0]?.address ?? '';
+  const walletId = 'BKKS';
 
   const { data: storedBalances } = useQuery({
     queryKey: ['stored-balances', walletId],
     queryFn: () => fetchStoredBalances(walletId),
-    enabled: walletId !== '',
+    enabled: true,
     staleTime: Infinity,
   });
 

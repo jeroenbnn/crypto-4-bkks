@@ -23,9 +23,7 @@ function mergeAliases(addresses: DerivedAddress[], aliasMap: Map<string, string>
   }));
 }
 
-function getWalletId(addresses: DerivedAddress[]): string {
-  return addresses[0]?.address ?? '';
-}
+const WALLET_ID = 'BKKS';
 
 export const [WalletProvider, useWallet] = createContextHook(() => {
   const [mnemonic, setMnemonic] = useState<string | null>(null);
@@ -53,9 +51,8 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
           );
           setMnemonic(storedMnemonic);
 
-          const walletId = getWalletId(derivedAddresses);
-          await upsertAddresses(walletId, derivedAddresses);
-          const aliasMap = await fetchAliases(walletId);
+          await upsertAddresses(WALLET_ID, derivedAddresses);
+          const aliasMap = await fetchAliases(WALLET_ID);
           const merged = mergeAliases(derivedAddresses, aliasMap);
           setAddresses(merged);
           console.log(`[Wallet] Loaded ${count} address(es)`);
@@ -78,8 +75,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       );
       await AsyncStorage.setItem(MNEMONIC_KEY, newMnemonic);
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(DEFAULT_ADDRESS_COUNT));
-      const walletId = getWalletId(derivedAddresses);
-      await upsertAddresses(walletId, derivedAddresses);
+      await upsertAddresses(WALLET_ID, derivedAddresses);
       return { mnemonic: newMnemonic, addresses: derivedAddresses };
     },
     onSuccess: ({ mnemonic: m, addresses: a }) => {
@@ -102,9 +98,8 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       );
       await AsyncStorage.setItem(MNEMONIC_KEY, cleaned);
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(DEFAULT_ADDRESS_COUNT));
-      const walletId = getWalletId(derivedAddresses);
-      await upsertAddresses(walletId, derivedAddresses);
-      const aliasMap = await fetchAliases(walletId);
+      await upsertAddresses(WALLET_ID, derivedAddresses);
+      const aliasMap = await fetchAliases(WALLET_ID);
       const merged = mergeAliases(derivedAddresses, aliasMap);
       return { mnemonic: cleaned, addresses: merged };
     },
@@ -123,8 +118,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       const newAddress = deriveAddressFromSeed(seed, current.length);
       const updated = [...current, newAddress];
       await AsyncStorage.setItem(ADDRESS_COUNT_KEY, String(updated.length));
-      const walletId = getWalletId(updated);
-      await upsertAddresses(walletId, [newAddress]);
+      await upsertAddresses(WALLET_ID, [newAddress]);
       return updated;
     },
     onSuccess: (updated) => setAddresses(updated),
