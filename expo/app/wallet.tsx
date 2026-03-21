@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,8 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import { Settings, Plus, ChevronRight, ArrowRightLeft } from 'lucide-react-native';
+import { useQuery, useQueries } from '@tanstack/react-query';
+import { Settings, Plus, ChevronRight, ArrowRightLeft, Eye, EyeOff, TrendingUp } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
 import { Colors } from '@/constants/colors';
@@ -28,30 +28,17 @@ interface CoinbasePrice {
   data: { amount: string };
 }
 
-function useBtcPrice() {
+function useBtcEurPrice() {
   return useQuery({
-    queryKey: ['btc-price'],
+    queryKey: ['btc-price-eur'],
     queryFn: async () => {
-      const res = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot');
+      const res = await fetch('https://api.coinbase.com/v2/prices/BTC-EUR/spot');
       if (!res.ok) return null;
       const json = (await res.json()) as CoinbasePrice;
       return parseFloat(json.data.amount);
     },
     staleTime: 60_000,
-    retry: 1,
-  });
-}
-
-function useAddressBalance(address: string) {
-  return useQuery({
-    queryKey: ['balance', address],
-    queryFn: async () => {
-      const res = await fetch(`https://mempool.space/api/address/${address}`);
-      if (!res.ok) return 0;
-      const data = (await res.json()) as BalanceData;
-      return (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) / 1e8;
-    },
-    staleTime: 30_000,
+    refetchInterval: 60_000,
     retry: 1,
   });
 }
@@ -64,19 +51,28 @@ function formatBtc(val: number): string {
   return val === 0 ? '0.00000000' : val.toFixed(8);
 }
 
+function formatEur(val: number): string {
+  if (val === 0) return '€0,00';
+  if (val >= 1000) return `€${val.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `€${val.toFixed(2).replace('.', ',')}`;
+}
+
 interface AddressCardProps {
   address: DerivedAddress;
-  btcPrice: number | null | undefined;
+  balance: number;
+  isLoading: boolean;
+  btcEurPrice: number | null | undefined;
   onPress: () => void;
 }
 
-function AddressCard({ address, btcPrice, onPress }: AddressCardProps) {
-  const { data: balance = 0, isLoading } = useAddressBalance(address.address);
-  const usdValue = btcPrice ? balance * btcPrice : null;
+function AddressCard({ address, balance, isLoading, btcEurPrice, onPress }: AddressCardProps) {
+  const eurValue = btcEurPrice ? balance * btcEurPrice : null;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const onPressIn = () => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start();
-  const onPressOut = () => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }).start();
+  const onPressIn = useCallback(() =>
+    Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start(), [scaleAnim]);
+  const onPressOut = useCallback(() =>
+    Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }).start(), [scaleAnim]);
 
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
@@ -109,8 +105,8 @@ function AddressCard({ address, btcPrice, onPress }: AddressCardProps) {
             ) : (
               <>
                 <Text style={styles.balanceBtc}>{formatBtc(balance)} BTC</Text>
-                {usdValue !== null && (
-                  <Text style={styles.balanceUsd}>≈ ${usdValue.toFixed(2)}</Text>
+                {eurValue !== null && eurValue > 0 && (
+                  <Text style={styles.balanceEur}>{formatEur(eurValue)}</Text>
                 )}
               </>
             )}
@@ -124,13 +120,41 @@ function AddressCard({ address, btcPrice, onPress }: AddressCardProps) {
 
 export default function WalletScreen() {
   const { addresses, addAddress, resetWallet, isAddingAddress, hasWallet, initialized } = useWallet();
+  const [hideEmpty, setHideEmpty] = useState(false);
 
   useEffect(() => {
     if (initialized && !hasWallet) {
       router.replace('/');
     }
   }, [initialized, hasWallet]);
-  const { data: btcPrice } = useBtcPrice();
+
+  const { data: btcEurPrice } = useBtcEurPrice();
+
+  const balanceQueries = useQueries({
+    queries: addresses.map((addr) => ({
+      queryKey: ['balance', addr.address],
+      queryFn: async () => {
+        const res = await fetch(`https://mempool.space/api/address/${addr.address}`);
+        if (!res.ok) return 0;
+        const data = (await res.json()) as BalanceData;
+        return (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) / 1e8;
+      },
+      staleTime: 30_000,
+      retry: 1,
+    })),
+  });
+
+  const totalBtc = balanceQueries.reduce((sum, q) => sum + (q.data ?? 0), 0);
+  const totalEur = btcEurPrice ? totalBtc * btcEurPrice : null;
+
+  const displayedAddresses = hideEmpty
+    ? addresses.filter((_, i) => {
+        const q = balanceQueries[i];
+        return !q.isFetched || (q.data ?? 0) > 0;
+      })
+    : addresses;
+
+  const hiddenCount = addresses.length - displayedAddresses.length;
 
   const handleExportAddresses = async () => {
     const lines = addresses.map((a) => `  "${a.address}",`).join('\n');
@@ -167,6 +191,32 @@ export default function WalletScreen() {
     ]);
   };
 
+  const ListHeader = (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionLabelRow}>
+        <Text style={styles.sectionLabel}>ADDRESSES</Text>
+        {hiddenCount > 0 && hideEmpty && (
+          <Text style={styles.hiddenCount}>{hiddenCount} verborgen</Text>
+        )}
+      </View>
+      <TouchableOpacity
+        style={[styles.filterToggle, hideEmpty && styles.filterToggleActive]}
+        onPress={() => setHideEmpty((v) => !v)}
+        activeOpacity={0.7}
+        testID="hide-empty-toggle"
+      >
+        {hideEmpty ? (
+          <EyeOff size={13} color={Colors.bitcoin} />
+        ) : (
+          <Eye size={13} color={Colors.textTertiary} />
+        )}
+        <Text style={[styles.filterToggleText, hideEmpty && styles.filterToggleTextActive]}>
+          {hideEmpty ? 'Toon leeg' : 'Verberg leeg'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -190,40 +240,65 @@ export default function WalletScreen() {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.walletValueCard}>
+            <View style={styles.walletValueLeft}>
+              <Text style={styles.walletValueLabel}>TOTALE WAARDE</Text>
+              <Text style={styles.walletValueAmount}>
+                {totalEur !== null ? formatEur(totalEur) : '—'}
+              </Text>
+              <Text style={styles.walletValueBtc}>{formatBtc(totalBtc)} BTC</Text>
+            </View>
+            <View style={styles.walletValueRight}>
+              <View style={styles.priceTag}>
+                <TrendingUp size={11} color={Colors.bitcoin} />
+                <Text style={styles.priceTagLabel}>BTC PRIJS</Text>
+              </View>
+              <Text style={styles.priceValue}>
+                {btcEurPrice
+                  ? `€${btcEurPrice.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`
+                  : '—'}
+              </Text>
+            </View>
+          </View>
+
           <View style={styles.statsRow}>
             <View style={styles.statCell}>
-              <Text style={styles.statLabel}>ADDRESSES</Text>
+              <Text style={styles.statLabel}>ADRESSEN</Text>
               <Text style={styles.statValue}>{addresses.length}</Text>
             </View>
             <View style={styles.statSep} />
             <View style={styles.statCell}>
-              <Text style={styles.statLabel}>BTC PRICE</Text>
-              <Text style={styles.statValue}>
-                {btcPrice
-                  ? `$${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-                  : '—'}
+              <Text style={styles.statLabel}>ACTIEF</Text>
+              <Text style={[styles.statValue, { color: Colors.success }]}>
+                {balanceQueries.filter((q) => (q.data ?? 0) > 0).length}
               </Text>
             </View>
             <View style={styles.statSep} />
             <View style={styles.statCell}>
-              <Text style={styles.statLabel}>NETWORK</Text>
+              <Text style={styles.statLabel}>NETWERK</Text>
               <Text style={[styles.statValue, { color: Colors.success }]}>Mainnet</Text>
             </View>
           </View>
         </LinearGradient>
 
         <FlatList
-          data={addresses}
+          data={displayedAddresses}
           keyExtractor={(item) => item.address}
-          renderItem={({ item }) => (
-            <AddressCard
-              address={item}
-              btcPrice={btcPrice}
-              onPress={() => router.push(`/address-detail?idx=${item.index}`)}
-            />
-          )}
+          renderItem={({ item }) => {
+            const idx = addresses.findIndex((a) => a.address === item.address);
+            const q = balanceQueries[idx];
+            return (
+              <AddressCard
+                address={item}
+                balance={q?.data ?? 0}
+                isLoading={q?.isLoading ?? false}
+                btcEurPrice={btcEurPrice}
+                onPress={() => router.push(`/address-detail?idx=${item.index}`)}
+              />
+            );
+          }}
           contentContainerStyle={styles.list}
-          ListHeaderComponent={<Text style={styles.sectionLabel}>ADDRESSES</Text>}
+          ListHeaderComponent={ListHeader}
           ListFooterComponent={
             <View style={styles.footerBtns}>
               <TouchableOpacity
@@ -238,7 +313,7 @@ export default function WalletScreen() {
                 ) : (
                   <>
                     <Plus size={17} color={Colors.bitcoin} />
-                    <Text style={styles.addBtnText}>Add New Address</Text>
+                    <Text style={styles.addBtnText}>Adres Toevoegen</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -249,7 +324,7 @@ export default function WalletScreen() {
                 testID="sweep-btn"
               >
                 <ArrowRightLeft size={17} color='#FFF' />
-                <Text style={styles.sweepBtnText}>Sweep All Funds</Text>
+                <Text style={styles.sweepBtnText}>Alle Fondsen Samenvoegen</Text>
               </TouchableOpacity>
             </View>
           }
@@ -267,12 +342,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 20,
+    gap: 14,
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 18,
   },
   brandRow: {
     flexDirection: 'row',
@@ -305,26 +380,121 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  walletValueCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  walletValueLeft: {
+    gap: 2,
+  },
+  walletValueLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  walletValueAmount: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: Colors.text,
+    letterSpacing: -0.5,
+  },
+  walletValueBtc: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    fontFamily: 'monospace',
+  },
+  walletValueRight: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  priceTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(247,147,26,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  priceTagLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Colors.bitcoin,
+    letterSpacing: 0.5,
+  },
+  priceValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.text,
+    letterSpacing: -0.3,
+  },
   statsRow: {
     flexDirection: 'row',
     backgroundColor: Colors.surface,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.border,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
-  statCell: { flex: 1, alignItems: 'center', gap: 5 },
+  statCell: { flex: 1, alignItems: 'center', gap: 4 },
   statLabel: { fontSize: 10, color: Colors.textTertiary, fontWeight: '700', letterSpacing: 0.8 },
-  statValue: { fontSize: 15, fontWeight: '800', color: Colors.text },
+  statValue: { fontSize: 14, fontWeight: '800', color: Colors.text },
   statSep: { width: 1, backgroundColor: Colors.border, marginVertical: 4 },
   list: { paddingHorizontal: 20, paddingBottom: 36, paddingTop: 6 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
     color: Colors.textTertiary,
     letterSpacing: 1.2,
-    marginBottom: 12,
-    marginTop: 8,
+  },
+  hiddenCount: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    fontWeight: '500',
+  },
+  filterToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  filterToggleActive: {
+    borderColor: Colors.bitcoin,
+    backgroundColor: 'rgba(247,147,26,0.08)',
+  },
+  filterToggleText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textTertiary,
+  },
+  filterToggleTextActive: {
+    color: Colors.bitcoin,
   },
   card: {
     flexDirection: 'row',
@@ -370,7 +540,7 @@ const styles = StyleSheet.create({
   },
   balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   balanceBtc: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  balanceUsd: { fontSize: 12, color: Colors.textTertiary },
+  balanceEur: { fontSize: 12, color: Colors.textTertiary },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
