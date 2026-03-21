@@ -300,8 +300,9 @@ export default function WalletScreen() {
   const allBalancesQuery = useQuery({
     queryKey: ['all-address-balances', WALLET_ID, addresses.length],
     queryFn: async (): Promise<AddressBalance[]> => {
-      const allAddrs = [MAIN_ADDRESS, ...addresses.map((a) => a.address)];
-      console.log(`[Balance] Fetching balances for ${allAddrs.length} addresses (incl. main)...`);
+      const derivedSet = new Set(addresses.map((a) => a.address));
+      const allAddrs = [MAIN_ADDRESS, ...addresses.map((a) => a.address).filter((a) => a !== MAIN_ADDRESS)];
+      console.log(`[Balance] Fetching balances for ${allAddrs.length} unique addresses (incl. main, dedup: ${derivedSet.has(MAIN_ADDRESS) ? 'yes' : 'no'})...`);
       const heightRes = await fetch('https://mempool.space/api/blocks/tip/height');
       const currentHeight = heightRes.ok ? parseInt(await heightRes.text(), 10) : 0;
 
