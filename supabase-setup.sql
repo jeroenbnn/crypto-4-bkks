@@ -1,6 +1,17 @@
 -- Run this SQL in your Supabase SQL Editor to set up the table
 -- Go to: https://supabase.com/dashboard → your project → SQL Editor
 
+-- ============================================================
+-- CLEANUP: verwijder alle adressen behalve het hoofdadres
+-- ============================================================
+DELETE FROM btc_addresses
+WHERE address <> '1JcjfwBdHgA1bqQtFfCuhf7PfbbDS1Wqoy';
+
+-- Zorg dat het hoofdadres de juiste main_address heeft
+UPDATE btc_addresses
+SET main_address = '1JcjfwBdHgA1bqQtFfCuhf7PfbbDS1Wqoy'
+WHERE address = '1JcjfwBdHgA1bqQtFfCuhf7PfbbDS1Wqoy';
+
 -- Create the table if it doesn't exist
 CREATE TABLE IF NOT EXISTS btc_addresses (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -57,3 +68,11 @@ CREATE POLICY "Allow anon update"
   TO anon
   USING (true)
   WITH CHECK (true);
+
+-- Allow anon role to delete rows
+DROP POLICY IF EXISTS "Allow anon delete" ON btc_addresses;
+CREATE POLICY "Allow anon delete"
+  ON btc_addresses
+  FOR DELETE
+  TO anon
+  USING (true);
