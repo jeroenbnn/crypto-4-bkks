@@ -38,6 +38,8 @@ import { fetchStoredBalances, updateAddressBalances, StoredBalance } from '@/uti
 import {
   requestNotificationPermissions,
   sendLowUnusedAddressNotification,
+  sendPendingTransactionNotification,
+  sendConfirmedTransactionNotification,
 } from '@/utils/notifications';
 
 const LOW_UNUSED_THRESHOLD = 10;
@@ -260,6 +262,7 @@ export default function WalletScreen() {
   const spinAnim = useRef(new Animated.Value(0)).current;
   const notificationSentRef = useRef(false);
   const lastSupabaseUpdateRef = useRef<number>(0);
+  const prevBalancesRef = useRef<Map<string, { satoshi: number; pendingSat: number }>>(new Map());
 
   useEffect(() => {
     if (initialized && !hasWallet) {
@@ -338,6 +341,32 @@ export default function WalletScreen() {
     }));
 
     void updateAddressBalances(updates);
+
+    const prev = prevBalancesRef.current;
+    for (const { address, satoshi, pendingSat } of allBalancesQuery.data) {
+      const old = prev.get(address);
+      if (!old) {
+        if (pendingSat > 0) {
+          console.log(`[Notifications] New pending tx on ${address}: ${pendingSat} sat`);
+          void sendPendingTransactionNotification(address, pendingSat, language);
+        }
+      } else {
+        if (pendingSat > 0 && old.pendingSat === 0) {
+          console.log(`[Notifications] New pending tx on ${address}: ${pendingSat} sat`);
+          void sendPendingTransactionNotification(address, pendingSat, language);
+        }
+        if (old.pendingSat > 0 && pendingSat === 0 && satoshi > old.satoshi) {
+          const gained = satoshi - old.satoshi;
+          console.log(`[Notifications] Tx confirmed on ${address}: +${gained} sat`);
+          void sendConfirmedTransactionNotification(address, gained, language);
+        }
+      }
+    }
+    const newPrev = new Map<string, { satoshi: number; pendingSat: number }>();
+    for (const { address, satoshi, pendingSat } of allBalancesQuery.data) {
+      newPrev.set(address, { satoshi, pendingSat });
+    }
+    prevBalancesRef.current = newPrev;
 
     const unusedCount = addresses.filter((a) => !a.alias).length;
     console.log(`[Wallet] Addresses without alias: ${unusedCount}`);

@@ -23,6 +23,78 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   }
 }
 
+const PENDING_TX_MESSAGES: Record<string, (address: string, btc: string) => { title: string; body: string }> = {
+  nl: (address, btc) => ({
+    title: '⏳ Wachtende betaling ontvangen',
+    body: `${btc} BTC wacht op bevestiging op ${address}`,
+  }),
+  fr: (address, btc) => ({
+    title: '⏳ Paiement en attente reçu',
+    body: `${btc} BTC en attente de confirmation sur ${address}`,
+  }),
+  en: (address, btc) => ({
+    title: '⏳ Pending payment received',
+    body: `${btc} BTC waiting for confirmation on ${address}`,
+  }),
+};
+
+const CONFIRMED_TX_MESSAGES: Record<string, (address: string, btc: string) => { title: string; body: string }> = {
+  nl: (address, btc) => ({
+    title: '✅ Betaling bevestigd',
+    body: `${btc} BTC bevestigd op ${address}`,
+  }),
+  fr: (address, btc) => ({
+    title: '✅ Paiement confirmé',
+    body: `${btc} BTC confirmé sur ${address}`,
+  }),
+  en: (address, btc) => ({
+    title: '✅ Payment confirmed',
+    body: `${btc} BTC confirmed on ${address}`,
+  }),
+};
+
+export async function sendPendingTransactionNotification(
+  address: string,
+  satoshi: number,
+  lang: string
+): Promise<void> {
+  if (Platform.OS === 'web') return;
+  const msgFn = PENDING_TX_MESSAGES[lang] ?? PENDING_TX_MESSAGES.nl;
+  const short = `${address.slice(0, 6)}…${address.slice(-6)}`;
+  const btc = (satoshi / 1e8).toFixed(8);
+  const msg = msgFn(short, btc);
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: { title: msg.title, body: msg.body, sound: true },
+      trigger: null,
+    });
+    console.log(`[Notifications] Sent pending tx notification for ${address}`);
+  } catch (e) {
+    console.error('[Notifications] sendPendingTransactionNotification error:', e);
+  }
+}
+
+export async function sendConfirmedTransactionNotification(
+  address: string,
+  satoshi: number,
+  lang: string
+): Promise<void> {
+  if (Platform.OS === 'web') return;
+  const msgFn = CONFIRMED_TX_MESSAGES[lang] ?? CONFIRMED_TX_MESSAGES.nl;
+  const short = `${address.slice(0, 6)}…${address.slice(-6)}`;
+  const btc = (satoshi / 1e8).toFixed(8);
+  const msg = msgFn(short, btc);
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: { title: msg.title, body: msg.body, sound: true },
+      trigger: null,
+    });
+    console.log(`[Notifications] Sent confirmed tx notification for ${address}`);
+  } catch (e) {
+    console.error('[Notifications] sendConfirmedTransactionNotification error:', e);
+  }
+}
+
 const LOW_UNUSED_MESSAGES: Record<string, (count: number) => { title: string; body: string }> = {
   nl: (count) => ({
     title: 'Bitcoin Wallet',
