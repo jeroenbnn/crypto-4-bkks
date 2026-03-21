@@ -10,7 +10,6 @@ import {
   Animated,
   Pressable,
   TextInput,
-  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,7 +27,6 @@ import {
   RotateCcw,
   ArrowUpRight,
   Clock,
-  Database,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
@@ -40,8 +38,6 @@ import {
   fetchStoredBalances,
   updateAddressBalances,
   StoredBalance,
-  fetchAllWallets,
-  WalletSummary,
 } from '@/utils/supabase';
 import {
   requestNotificationPermissions,
@@ -288,13 +284,6 @@ export default function WalletScreen() {
     queryKey: ['stored-balances', WALLET_ID],
     queryFn: () => fetchStoredBalances(WALLET_ID),
     staleTime: Infinity,
-  });
-
-  const { data: allWallets } = useQuery({
-    queryKey: ['all-wallets-supabase'],
-    queryFn: fetchAllWallets,
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
   });
 
   const allBalancesQuery = useQuery({
@@ -619,35 +608,6 @@ export default function WalletScreen() {
           </View>
         </View>
 
-        {allWallets && allWallets.length > 0 && (
-          <View style={styles.walletsSection}>
-            <View style={styles.walletsSectionHeader}>
-              <Database size={11} color={Colors.textTertiary} />
-              <Text style={styles.walletsSectionLabel}>WALLETS IN DATABASE</Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.walletsScroll}
-            >
-              {allWallets.map((w: WalletSummary) => (
-                <View
-                  key={w.wallet_id}
-                  style={[styles.walletChip, w.wallet_id === WALLET_ID && styles.walletChipActive]}
-                >
-                  <Text style={[styles.walletChipId, w.wallet_id === WALLET_ID && styles.walletChipIdActive]}>
-                    {w.wallet_id}
-                  </Text>
-                  <Text style={styles.walletChipCount}>{w.address_count} adr.</Text>
-                  <Text style={styles.walletChipBalance}>
-                    {(w.total_satoshi / 1e8).toFixed(4)} BTC
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
         <View style={styles.actionBtns}>
           <TouchableOpacity
             style={styles.addBtn}
@@ -963,58 +923,6 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 10, color: Colors.textTertiary, fontWeight: '700', letterSpacing: 0.8 },
   statValue: { fontSize: 14, fontWeight: '800', color: Colors.text },
   statSep: { width: 1, backgroundColor: Colors.border, marginVertical: 4 },
-  walletsSection: {
-    gap: 8,
-  },
-  walletsSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  walletsSectionLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.textTertiary,
-    letterSpacing: 1,
-  },
-  walletsScroll: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  walletChip: {
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 3,
-    minWidth: 110,
-  },
-  walletChipActive: {
-    borderColor: Colors.bitcoin,
-    backgroundColor: 'rgba(247,147,26,0.08)',
-  },
-  walletChipId: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: Colors.textSecondary,
-    letterSpacing: 0.3,
-  },
-  walletChipIdActive: {
-    color: Colors.bitcoin,
-  },
-  walletChipCount: {
-    fontSize: 10,
-    color: Colors.textTertiary,
-    fontWeight: '500',
-  },
-  walletChipBalance: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-    fontFamily: 'monospace',
-  },
   actionBtns: {
     flexDirection: 'row',
     gap: 8,
