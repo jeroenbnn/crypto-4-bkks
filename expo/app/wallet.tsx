@@ -27,6 +27,7 @@ import {
   RotateCcw,
   ArrowUpRight,
   Clock,
+  Zap,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
@@ -650,6 +651,15 @@ export default function WalletScreen() {
             <Text style={styles.sendBtnText}>Betalen</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            style={styles.lightningBtn}
+            onPress={() => router.push('/lightning')}
+            activeOpacity={0.8}
+            testID="lightning-btn"
+          >
+            <Zap size={17} color="#F7C948" fill="#F7C948" />
+            <Text style={styles.lightningBtnText}>Lightning</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.sweepBtn}
             onPress={() => router.push('/sweep')}
             activeOpacity={0.8}
@@ -984,6 +994,19 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   sweepBtnText: { fontSize: 13, fontWeight: '700', color: Colors.bitcoin },
+  lightningBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(247,201,72,0.1)',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(247,201,72,0.35)',
+    paddingVertical: 13,
+  },
+  lightningBtnText: { fontSize: 13, fontWeight: '700', color: '#F7C948' },
   list: { paddingBottom: 36 },
   sectionHeader: {
     flexDirection: 'row',

@@ -34,6 +34,10 @@ export default function RootLayout() {
               name="sweep"
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
+            <Stack.Screen
+              name="lightning"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
           </Stack>
         </WalletProvider>
       </LanguageProvider>
