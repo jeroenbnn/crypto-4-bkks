@@ -618,6 +618,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
+    marginRight: 8,
+    overflow: 'hidden',
   },
   btcBadge: {
     width: 38,
@@ -634,7 +637,7 @@ const styles = StyleSheet.create({
   },
   btcBadgeText: { fontSize: 18, color: '#FFF', fontWeight: '800' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: Colors.text, letterSpacing: -0.3 },
-  headerSubtitle: { fontSize: 11, color: Colors.textTertiary, marginTop: 1 },
+  headerSubtitle: { fontSize: 11, color: Colors.textTertiary, marginTop: 1, flexShrink: 1 },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
