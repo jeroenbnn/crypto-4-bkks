@@ -23,6 +23,16 @@ export interface SweepEstimate {
   addressesWithFunds: AddressUTXOs[];
 }
 
+export interface SendEstimate {
+  totalAvailableSats: number;
+  sendSats: number;
+  feeSats: number;
+  changeSats: number;
+  numInputs: number;
+  selectedUTXOs: AddressUTXOs[];
+  changeAddress: DerivedAddress;
+}
+
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
@@ -78,6 +88,72 @@ export function buildSweepEstimate(
   return { totalSats, feeSats, netSats, numInputs, addressesWithFunds };
 }
 
+export function buildPartialSendEstimate(
+  allAddressesWithFunds: AddressUTXOs[],
+  sendAmountSats: number,
+  feeRate: number,
+  changeAddress: DerivedAddress
+): SendEstimate {
+  const allUTXOItems: { addrUtxo: AddressUTXOs; utxo: UTXO }[] = [];
+  for (const addrUtxo of allAddressesWithFunds) {
+    for (const utxo of addrUtxo.utxos) {
+      allUTXOItems.push({ addrUtxo, utxo });
+    }
+  }
+  allUTXOItems.sort((a, b) => b.utxo.value - a.utxo.value);
+
+  const selectedItems: typeof allUTXOItems = [];
+  let selectedTotal = 0;
+
+  for (const item of allUTXOItems) {
+    selectedItems.push(item);
+    selectedTotal += item.utxo.value;
+    const estimatedFee = estimateFee(selectedItems.length, feeRate) + 34;
+    if (selectedTotal >= sendAmountSats + estimatedFee) break;
+  }
+
+  const numInputs = selectedItems.length;
+  const feeWith2Outputs = estimateFee(numInputs, feeRate) + 34;
+  const potentialChange = selectedTotal - sendAmountSats - feeWith2Outputs;
+
+  let feeSats: number;
+  let changeSats: number;
+
+  if (potentialChange <= 546) {
+    feeSats = selectedTotal - sendAmountSats;
+    changeSats = 0;
+  } else {
+    feeSats = feeWith2Outputs;
+    changeSats = potentialChange;
+  }
+
+  const selectedByAddress = new Map<string, AddressUTXOs>();
+  for (const { addrUtxo, utxo } of selectedItems) {
+    if (!selectedByAddress.has(addrUtxo.address.address)) {
+      selectedByAddress.set(addrUtxo.address.address, {
+        address: addrUtxo.address,
+        utxos: [],
+        total: 0,
+      });
+    }
+    const entry = selectedByAddress.get(addrUtxo.address.address)!;
+    entry.utxos.push(utxo);
+    entry.total += utxo.value;
+  }
+
+  const totalAvailableSats = allAddressesWithFunds.reduce((s, a) => s + a.total, 0);
+
+  return {
+    totalAvailableSats,
+    sendSats: sendAmountSats,
+    feeSats,
+    changeSats,
+    numInputs,
+    selectedUTXOs: Array.from(selectedByAddress.values()),
+    changeAddress,
+  };
+}
+
 export async function sweepToAddress(
   seed: Uint8Array,
   addressesWithFunds: AddressUTXOs[],
@@ -127,6 +203,50 @@ export async function sweepToAddress(
   const txHex = tx.hex;
   console.log(`[Sweep] Transaction built: ${txHex.slice(0, 40)}...`);
   return txHex;
+}
+
+export async function sendPartialAmount(
+  seed: Uint8Array,
+  estimate: SendEstimate,
+  destinationAddress: string
+): Promise<string> {
+  const root = HDKey.fromMasterSeed(seed);
+  const tx = new Transaction();
+
+  const inputsInfo: Array<{ address: DerivedAddress; utxo: UTXO }> = [];
+  for (const { address, utxos } of estimate.selectedUTXOs) {
+    for (const utxo of utxos) {
+      inputsInfo.push({ address, utxo });
+    }
+  }
+
+  console.log(`[Send] Building tx: ${inputsInfo.length} inputs, send=${estimate.sendSats} sat, fee=${estimate.feeSats} sat, change=${estimate.changeSats} sat`);
+
+  for (const { utxo } of inputsInfo) {
+    const rawTx = await fetchRawTxBytes(utxo.txid);
+    tx.addInput({
+      txid: utxo.txid,
+      index: utxo.vout,
+      nonWitnessUtxo: rawTx,
+    });
+  }
+
+  tx.addOutputAddress(destinationAddress, BigInt(estimate.sendSats));
+
+  if (estimate.changeSats > 546) {
+    tx.addOutputAddress(estimate.changeAddress.address, BigInt(estimate.changeSats));
+  }
+
+  for (let i = 0; i < inputsInfo.length; i++) {
+    const { address } = inputsInfo[i];
+    const child = root.derive(address.path);
+    if (!child.privateKey) throw new Error(`Could not derive private key for path ${address.path}`);
+    tx.signIdx(child.privateKey, i);
+  }
+
+  tx.finalize();
+  console.log(`[Send] Transaction built successfully`);
+  return tx.hex;
 }
 
 export async function broadcastTransaction(txHex: string): Promise<string> {
