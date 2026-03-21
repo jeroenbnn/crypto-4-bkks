@@ -37,7 +37,7 @@ export default function AddressDetailScreen() {
 
   const handleCopy = async () => {
     if (!address) return;
-    await Clipboard.setStringAsync(address.mainAddress);
+    await Clipboard.setStringAsync(address.address);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -103,15 +103,15 @@ export default function AddressDetailScreen() {
             <View style={styles.qrCard}>
               <View style={styles.qrWrapper}>
                 <QRCodeDisplay
-                  value={`bitcoin:${address.mainAddress}`}
+                  value={`bitcoin:${address.address}`}
                   size={210}
                   bgColor="#FFFFFF"
                   fgColor="#0A0A0F"
                 />
               </View>
               <View style={styles.qrFooter}>
-                <Text style={styles.qrLabel}>Scan to receive Bitcoin</Text>
-                <Text style={styles.qrPath}>Hoofdadres</Text>
+                <Text style={styles.qrLabel}>Scan om Bitcoin te ontvangen</Text>
+                <Text style={styles.qrPath}>{address.path}</Text>
               </View>
             </View>
 
@@ -185,9 +185,9 @@ export default function AddressDetailScreen() {
             </View>
 
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>BETALINGSADRES (HOOFDADRES)</Text>
+              <Text style={styles.infoLabel}>BETALINGSADRES</Text>
               <Text style={styles.addressFull} selectable>
-                {address.mainAddress}
+                {address.address}
               </Text>
               <TouchableOpacity
                 style={[styles.copyBtn, copied && styles.copyBtnSuccess]}
@@ -210,19 +210,14 @@ export default function AddressDetailScreen() {
             </View>
 
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>INTERN REFERENTIE-ID</Text>
-              <Text style={styles.monoText} selectable>{address.address}</Text>
-              <Text style={styles.infoHint}>Unieke identifier per gebruiker — niet voor betalingen</Text>
-            </View>
-
-            <View style={styles.infoCard}>
               <Text style={styles.infoLabel}>AFLEIDINGSPAD</Text>
               <Text style={styles.monoText}>{address.path}</Text>
+              <Text style={styles.infoHint}>HD-afgeleid adres — uniek per gebruiker, ontvangt betalingen rechtstreeks</Text>
             </View>
 
             <View style={styles.warningCard}>
               <Text style={styles.warningText}>
-                ⚡ Deel het hoofdadres om bitcoin te ontvangen. Bewaar nooit je herstelzin of privésleutels bij anderen.
+                ⚡ Deel dit adres om bitcoin te ontvangen. Bewaar nooit je herstelzin of privésleutels bij anderen.
               </Text>
             </View>
           </ScrollView>
