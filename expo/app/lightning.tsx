@@ -20,51 +20,44 @@ import * as Clipboard from 'expo-clipboard';
 import { QRCodeDisplay } from '@/components/QRCodeDisplay';
 import { Colors } from '@/constants/colors';
 
-const OPENNODE_API_KEY = process.env.EXPO_PUBLIC_OPENNODE_API_KEY ?? '';
-const OPENNODE_BASE = 'https://api.opennode.com';
+const ALBY_TOKEN = process.env.EXPO_PUBLIC_ALBY_TOKEN ?? '';
+const ALBY_BASE = 'https://api.getalby.com';
 
-interface OpenNodeCharge {
-  id: string;
-  description: string;
+interface AlbyInvoice {
+  payment_hash: string;
+  payment_request: string;
   amount: number;
-  status: 'unpaid' | 'paid' | 'expired' | 'processing';
-  lightning_invoice: {
-    payreq: string;
-    expires_at: number;
-  };
+  memo: string;
+  settled: boolean;
+  expires_at: string;
 }
 
-interface OpenNodeResponse {
-  data: OpenNodeCharge;
-}
-
-async function createLightningInvoice(amountSats: number, description: string): Promise<OpenNodeCharge> {
-  console.log(`[Lightning] Creating invoice for ${amountSats} sats...`);
-  const res = await fetch(`${OPENNODE_BASE}/v1/charges`, {
+async function createLightningInvoice(amountSats: number, description: string): Promise<AlbyInvoice> {
+  console.log(`[Lightning] Creating Alby invoice for ${amountSats} sats...`);
+  const res = await fetch(`${ALBY_BASE}/invoices`, {
     method: 'POST',
     headers: {
-      Authorization: OPENNODE_API_KEY,
+      Authorization: `Bearer ${ALBY_TOKEN}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ amount: amountSats, description, currency: 'BTC' }),
+    body: JSON.stringify({ amount: amountSats, memo: description }),
   });
   if (!res.ok) {
     const err = await res.text();
     console.error('[Lightning] Create invoice error:', err);
     throw new Error(`Factuur aanmaken mislukt: ${res.status}`);
   }
-  const json = (await res.json()) as OpenNodeResponse;
-  console.log('[Lightning] Invoice created:', json.data.id);
-  return json.data;
+  const json = (await res.json()) as AlbyInvoice;
+  console.log('[Lightning] Invoice created:', json.payment_hash);
+  return json;
 }
 
-async function checkInvoiceStatus(chargeId: string): Promise<OpenNodeCharge> {
-  const res = await fetch(`${OPENNODE_BASE}/v1/charge/${chargeId}`, {
-    headers: { Authorization: OPENNODE_API_KEY },
+async function checkInvoiceStatus(paymentHash: string): Promise<AlbyInvoice> {
+  const res = await fetch(`${ALBY_BASE}/invoices/${paymentHash}`, {
+    headers: { Authorization: `Bearer ${ALBY_TOKEN}` },
   });
   if (!res.ok) throw new Error('Status ophalen mislukt');
-  const json = (await res.json()) as OpenNodeResponse;
-  return json.data;
+  return (await res.json()) as AlbyInvoice;
 }
 
 function useBtcEurPrice() {
@@ -101,7 +94,7 @@ export default function LightningScreen() {
   const [amount, setAmount] = useState('');
   const [unit, setUnit] = useState<AmountUnit>('EUR');
   const [description, setDescription] = useState('');
-  const [charge, setCharge] = useState<OpenNodeCharge | null>(null);
+  const [charge, setCharge] = useState<AlbyInvoice | null>(null);
   const [timeLeft, setTimeLeft] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -110,8 +103,8 @@ export default function LightningScreen() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isPaid = charge?.status === 'paid';
-  const isExpired = charge?.status === 'expired';
+  const isPaid = charge?.settled === true;
+  const isExpired = charge ? !charge.settled && new Date(charge.expires_at).getTime() < Date.now() : false;
 
   const amountSats = useCallback((): number => {
     const val = parseFloat(amount.replace(',', '.'));
@@ -127,21 +120,21 @@ export default function LightningScreen() {
     return (sats / 1e8) * btcEurPrice;
   }, [amountSats, btcEurPrice]);
 
-  const startPolling = useCallback((chargeId: string) => {
+  const startPolling = useCallback((paymentHash: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     pollingRef.current = setInterval(async () => {
       try {
-        const updated = await checkInvoiceStatus(chargeId);
-        console.log(`[Lightning] Status: ${updated.status}`);
+        const updated = await checkInvoiceStatus(paymentHash);
+        console.log(`[Lightning] Settled: ${updated.settled}`);
         setCharge(updated);
-        if (updated.status === 'paid') {
+        if (updated.settled) {
           if (pollingRef.current) clearInterval(pollingRef.current);
           if (timerRef.current) clearInterval(timerRef.current);
           Animated.sequence([
             Animated.timing(successAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
           ]).start();
           void queryClient.invalidateQueries({ queryKey: ['main-address-balance'] });
-        } else if (updated.status === 'expired') {
+        } else if (new Date(updated.expires_at).getTime() < Date.now()) {
           if (pollingRef.current) clearInterval(pollingRef.current);
           if (timerRef.current) clearInterval(timerRef.current);
         }
@@ -151,11 +144,12 @@ export default function LightningScreen() {
     }, 5000);
   }, [successAnim, queryClient]);
 
-  const startTimer = useCallback((expiresAt: number) => {
+  const startTimer = useCallback((expiresAt: string) => {
+    const expiresTs = Math.floor(new Date(expiresAt).getTime() / 1000);
     if (timerRef.current) clearInterval(timerRef.current);
-    setTimeLeft(formatTimeLeft(expiresAt));
+    setTimeLeft(formatTimeLeft(expiresTs));
     timerRef.current = setInterval(() => {
-      setTimeLeft(formatTimeLeft(expiresAt));
+      setTimeLeft(formatTimeLeft(expiresTs));
     }, 1000);
   }, []);
 
@@ -178,7 +172,7 @@ export default function LightningScreen() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!OPENNODE_API_KEY) throw new Error('Geen OpenNode API sleutel geconfigureerd.');
+      if (!ALBY_TOKEN) throw new Error('Geen Alby API token geconfigureerd.');
       const sats = amountSats();
       if (sats < 1) throw new Error('Vul een geldig bedrag in.');
       const desc = description.trim() || 'BKKS Lightning Storting';
@@ -186,8 +180,8 @@ export default function LightningScreen() {
     },
     onSuccess: (data) => {
       setCharge(data);
-      startPolling(data.id);
-      startTimer(data.lightning_invoice.expires_at);
+      startPolling(data.payment_hash);
+      startTimer(data.expires_at);
     },
     onError: (e: Error) => {
       Alert.alert('Fout', e.message);
@@ -196,7 +190,7 @@ export default function LightningScreen() {
 
   const handleCopy = useCallback(async () => {
     if (!charge) return;
-    await Clipboard.setStringAsync(charge.lightning_invoice.payreq);
+    await Clipboard.setStringAsync(charge.payment_request);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [charge]);
@@ -234,7 +228,7 @@ export default function LightningScreen() {
 
   const sats = amountSats();
   const eur = eurValue();
-  const payreq = charge?.lightning_invoice.payreq ?? '';
+  const payreq = charge?.payment_request ?? '';
   const qrValue = payreq ? `lightning:${payreq.toUpperCase()}` : '';
 
   return (
