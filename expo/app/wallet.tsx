@@ -182,6 +182,7 @@ export default function WalletScreen() {
   const spinAnim = useRef(new Animated.Value(0)).current;
   const notificationSentRef = useRef(false);
   const lastSupabaseUpdateRef = useRef<number>(0);
+  const lastAliasRefreshRef = useRef<number>(0);
 
   useEffect(() => {
     if (initialized && !hasWallet) {
@@ -192,6 +193,22 @@ export default function WalletScreen() {
   useEffect(() => {
     void requestNotificationPermissions();
   }, []);
+
+  useEffect(() => {
+    const ALIAS_INTERVAL = 10 * 60 * 1000;
+    const timer = setInterval(() => {
+      const aliasAddresses = addresses.filter((a) => a.alias);
+      if (aliasAddresses.length === 0) return;
+      console.log(`[Wallet] 10-min alias refresh: ${aliasAddresses.length} addresses with alias`);
+      lastAliasRefreshRef.current = Date.now();
+      void Promise.all(
+        aliasAddresses.map((a) =>
+          queryClient.refetchQueries({ queryKey: ['balance', a.address] })
+        )
+      );
+    }, ALIAS_INTERVAL);
+    return () => clearInterval(timer);
+  }, [addresses, queryClient]);
 
   const { data: btcEurPrice } = useBtcEurPrice();
 
