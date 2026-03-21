@@ -129,6 +129,39 @@ export async function deleteAddresses(addresses: string[]): Promise<void> {
   }
 }
 
+export interface WalletSummary {
+  wallet_id: string;
+  address_count: number;
+  total_satoshi: number;
+}
+
+export async function fetchAllWallets(): Promise<WalletSummary[]> {
+  if (!supabaseUrl) return [];
+  const { data, error } = await supabase
+    .from('btc_addresses')
+    .select('wallet_id, balance_satoshi');
+  if (error) {
+    console.error('[Supabase] fetchAllWallets error:', error.message);
+    return [];
+  }
+  const map = new Map<string, { count: number; total: number }>();
+  for (const row of data ?? []) {
+    const wid = row.wallet_id as string;
+    const existing = map.get(wid) ?? { count: 0, total: 0 };
+    map.set(wid, {
+      count: existing.count + 1,
+      total: existing.total + ((row.balance_satoshi as number) ?? 0),
+    });
+  }
+  const result = Array.from(map.entries()).map(([wallet_id, { count, total }]) => ({
+    wallet_id,
+    address_count: count,
+    total_satoshi: total,
+  }));
+  console.log(`[Supabase] Fetched ${result.length} wallet(s)`);
+  return result;
+}
+
 export async function updateAddressBalances(
   updates: { address: string; satoshi: number; isUsed: boolean }[]
 ): Promise<void> {

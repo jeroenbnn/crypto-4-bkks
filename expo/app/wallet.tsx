@@ -10,6 +10,7 @@ import {
   Animated,
   Pressable,
   TextInput,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,7 +28,7 @@ import {
   RotateCcw,
   ArrowUpRight,
   Clock,
-  Zap,
+  Database,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
@@ -35,7 +36,13 @@ import { useLanguage } from '@/context/language';
 import { Colors } from '@/constants/colors';
 import { DerivedAddress, MAIN_ADDRESS } from '@/utils/bitcoin';
 import { Language } from '@/constants/i18n';
-import { fetchStoredBalances, updateAddressBalances, StoredBalance } from '@/utils/supabase';
+import {
+  fetchStoredBalances,
+  updateAddressBalances,
+  StoredBalance,
+  fetchAllWallets,
+  WalletSummary,
+} from '@/utils/supabase';
 import {
   requestNotificationPermissions,
   sendLowUnusedAddressNotification,
@@ -283,36 +290,30 @@ export default function WalletScreen() {
     staleTime: Infinity,
   });
 
-  const mainAddressQuery = useQuery({
-    queryKey: ['main-address-balance'],
-    queryFn: async (): Promise<AddressBalance> => {
-      console.log('[Balance] Fetching main address balance...');
-      const heightRes = await fetch('https://mempool.space/api/blocks/tip/height');
-      const currentHeight = heightRes.ok ? parseInt(await heightRes.text(), 10) : 0;
-      return fetchSingleAddressBalance(MAIN_ADDRESS, currentHeight);
-    },
+  const { data: allWallets } = useQuery({
+    queryKey: ['all-wallets-supabase'],
+    queryFn: fetchAllWallets,
     staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
     retry: 1,
   });
 
   const allBalancesQuery = useQuery({
-    queryKey: ['all-address-balances', WALLET_ID],
+    queryKey: ['all-address-balances', WALLET_ID, addresses.length],
     queryFn: async (): Promise<AddressBalance[]> => {
-      if (addresses.length === 0) return [];
-      console.log(`[Balance] Fetching balances for ${addresses.length} HD addresses...`);
+      const allAddrs = [MAIN_ADDRESS, ...addresses.map((a) => a.address)];
+      console.log(`[Balance] Fetching balances for ${allAddrs.length} addresses (incl. main)...`);
       const heightRes = await fetch('https://mempool.space/api/blocks/tip/height');
       const currentHeight = heightRes.ok ? parseInt(await heightRes.text(), 10) : 0;
 
       const results = await Promise.all(
-        addresses.map((addr) => fetchSingleAddressBalance(addr.address, currentHeight))
+        allAddrs.map((addr) => fetchSingleAddressBalance(addr, currentHeight))
       );
 
       const withFunds = results.filter((r) => r.satoshi > 0 || r.pendingSat > 0);
-      console.log(`[Balance] ${withFunds.length}/${addresses.length} addresses have funds`);
+      console.log(`[Balance] ${withFunds.length}/${allAddrs.length} addresses have funds`);
       return results;
     },
-    enabled: addresses.length > 0,
+    enabled: true,
     staleTime: 3_600_000,
     refetchInterval: 3_600_000,
     retry: 1,
@@ -324,27 +325,26 @@ export default function WalletScreen() {
       const aliasAddresses = addresses.filter((a) => a.alias);
       if (aliasAddresses.length === 0) return;
       console.log(`[Wallet] 10-min alias refresh: ${aliasAddresses.length} addresses with alias`);
-      void queryClient.refetchQueries({ queryKey: ['all-address-balances', WALLET_ID] });
+      void queryClient.refetchQueries({ queryKey: ['all-address-balances', WALLET_ID, addresses.length] });
     }, ALIAS_INTERVAL);
     return () => clearInterval(timer);
   }, [addresses, queryClient]);
 
   useEffect(() => {
-    if (!allBalancesQuery.isFetched || addresses.length === 0 || !allBalancesQuery.data) return;
+    if (!allBalancesQuery.isFetched || !allBalancesQuery.data) return;
     const now = Date.now();
     if (now - lastSupabaseUpdateRef.current < 30_000) return;
     lastSupabaseUpdateRef.current = now;
 
-    const updates = allBalancesQuery.data.map(({ address, satoshi, isUsed }) => ({
-      address,
-      satoshi,
-      isUsed,
-    }));
+    const updates = allBalancesQuery.data
+      .filter((b) => b.address !== MAIN_ADDRESS)
+      .map(({ address, satoshi, isUsed }) => ({ address, satoshi, isUsed }));
 
     void updateAddressBalances(updates);
 
     const prev = prevBalancesRef.current;
     for (const { address, satoshi, pendingSat } of allBalancesQuery.data) {
+      if (address === MAIN_ADDRESS) continue;
       const old = prev.get(address);
       if (!old) {
         if (pendingSat > 0) {
@@ -379,18 +379,15 @@ export default function WalletScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allBalancesQuery.isFetched, allBalancesQuery.dataUpdatedAt]);
 
-  const mainBalance = mainAddressQuery.data;
-  const derivedTotalSat = useMemo(
+  const totalSat = useMemo(
     () => allBalancesQuery.data?.reduce((sum, b) => sum + b.satoshi, 0) ?? 0,
     [allBalancesQuery.data]
   );
-  const derivedPendingSat = useMemo(
+  const totalPendingSat = useMemo(
     () => allBalancesQuery.data?.reduce((sum, b) => sum + b.pendingSat, 0) ?? 0,
     [allBalancesQuery.data]
   );
-  const combinedSat = (mainBalance?.satoshi ?? 0) + derivedTotalSat;
-  const totalBtc = combinedSat / 1e8;
-  const totalPendingSat = (mainBalance?.pendingSat ?? 0) + derivedPendingSat;
+  const totalBtc = totalSat / 1e8;
   const totalEur = btcEurPrice ? totalBtc * btcEurPrice : null;
   const totalPendingBtc = totalPendingSat / 1e8;
   const totalPendingEur = btcEurPrice && totalPendingSat > 0 ? totalPendingBtc * btcEurPrice : null;
@@ -411,7 +408,7 @@ export default function WalletScreen() {
     return liveBalanceMap.get(addr);
   }, [liveBalanceMap]);
 
-  const isAnyFetching = allBalancesQuery.isFetching || mainAddressQuery.isFetching;
+  const isAnyFetching = allBalancesQuery.isFetching;
 
   const handleRefresh = useCallback(() => {
     notificationSentRef.current = false;
@@ -422,14 +419,11 @@ export default function WalletScreen() {
       { iterations: -1 }
     ).start();
 
-    void Promise.all([
-      queryClient.refetchQueries({ queryKey: ['all-address-balances', WALLET_ID] }),
-      queryClient.refetchQueries({ queryKey: ['main-address-balance'] }),
-    ]).then(() => {
+    void queryClient.refetchQueries({ queryKey: ['all-address-balances', WALLET_ID, addresses.length] }).then(() => {
       spinAnim.stopAnimation();
       spinAnim.setValue(0);
     });
-  }, [queryClient, spinAnim]);
+  }, [queryClient, spinAnim, addresses.length]);
 
   const spinInterpolate = spinAnim.interpolate({
     inputRange: [0, 1],
@@ -559,7 +553,7 @@ export default function WalletScreen() {
         <View style={styles.walletValueCard}>
           <View style={styles.walletValueLeft}>
             <Text style={styles.walletValueLabel}>{t.wallet.totalValue}</Text>
-            {mainAddressQuery.isFetching && !mainBalance ? (
+            {allBalancesQuery.isFetching && totalSat === 0 ? (
               <ActivityIndicator size="small" color={Colors.bitcoin} style={{ marginVertical: 8 }} />
             ) : (
               <>
@@ -591,15 +585,15 @@ export default function WalletScreen() {
             </Text>
             <TouchableOpacity
               style={styles.refreshMainBtn}
-              onPress={() => void queryClient.refetchQueries({ queryKey: ['main-address-balance'] })}
-              disabled={mainAddressQuery.isFetching}
+              onPress={handleRefresh}
+              disabled={allBalancesQuery.isFetching}
               testID="refresh-main-btn"
             >
-              <Animated.View style={{ transform: [{ rotate: mainAddressQuery.isFetching ? spinInterpolate : '0deg' }] }}>
-                <RotateCcw size={11} color={mainAddressQuery.isFetching ? Colors.bitcoin : Colors.textTertiary} />
+              <Animated.View style={{ transform: [{ rotate: allBalancesQuery.isFetching ? spinInterpolate : '0deg' }] }}>
+                <RotateCcw size={11} color={allBalancesQuery.isFetching ? Colors.bitcoin : Colors.textTertiary} />
               </Animated.View>
-              <Text style={[styles.refreshMainBtnText, mainAddressQuery.isFetching && { color: Colors.bitcoin }]}>
-                {mainAddressQuery.isFetching ? 'Laden…' : '5 min'}
+              <Text style={[styles.refreshMainBtnText, allBalancesQuery.isFetching && { color: Colors.bitcoin }]}>
+                {allBalancesQuery.isFetching ? 'Laden…' : '60 min'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -623,6 +617,35 @@ export default function WalletScreen() {
             <Text style={[styles.statValue, { color: Colors.success }]}>{t.wallet.mainnet}</Text>
           </View>
         </View>
+
+        {allWallets && allWallets.length > 0 && (
+          <View style={styles.walletsSection}>
+            <View style={styles.walletsSectionHeader}>
+              <Database size={11} color={Colors.textTertiary} />
+              <Text style={styles.walletsSectionLabel}>WALLETS IN DATABASE</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.walletsScroll}
+            >
+              {allWallets.map((w: WalletSummary) => (
+                <View
+                  key={w.wallet_id}
+                  style={[styles.walletChip, w.wallet_id === WALLET_ID && styles.walletChipActive]}
+                >
+                  <Text style={[styles.walletChipId, w.wallet_id === WALLET_ID && styles.walletChipIdActive]}>
+                    {w.wallet_id}
+                  </Text>
+                  <Text style={styles.walletChipCount}>{w.address_count} adr.</Text>
+                  <Text style={styles.walletChipBalance}>
+                    {(w.total_satoshi / 1e8).toFixed(4)} BTC
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         <View style={styles.actionBtns}>
           <TouchableOpacity
@@ -649,15 +672,6 @@ export default function WalletScreen() {
           >
             <ArrowUpRight size={17} color="#FFF" />
             <Text style={styles.sendBtnText}>Betalen</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.lightningBtn}
-            onPress={() => router.push('/lightning')}
-            activeOpacity={0.8}
-            testID="lightning-btn"
-          >
-            <Zap size={17} color="#F7C948" fill="#F7C948" />
-            <Text style={styles.lightningBtnText}>Lightning</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.sweepBtn}
@@ -948,6 +962,58 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 10, color: Colors.textTertiary, fontWeight: '700', letterSpacing: 0.8 },
   statValue: { fontSize: 14, fontWeight: '800', color: Colors.text },
   statSep: { width: 1, backgroundColor: Colors.border, marginVertical: 4 },
+  walletsSection: {
+    gap: 8,
+  },
+  walletsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  walletsSectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    letterSpacing: 1,
+  },
+  walletsScroll: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  walletChip: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 3,
+    minWidth: 110,
+  },
+  walletChipActive: {
+    borderColor: Colors.bitcoin,
+    backgroundColor: 'rgba(247,147,26,0.08)',
+  },
+  walletChipId: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.textSecondary,
+    letterSpacing: 0.3,
+  },
+  walletChipIdActive: {
+    color: Colors.bitcoin,
+  },
+  walletChipCount: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    fontWeight: '500',
+  },
+  walletChipBalance: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+    fontFamily: 'monospace',
+  },
   actionBtns: {
     flexDirection: 'row',
     gap: 8,
@@ -994,19 +1060,6 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   sweepBtnText: { fontSize: 13, fontWeight: '700', color: Colors.bitcoin },
-  lightningBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(247,201,72,0.1)',
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'rgba(247,201,72,0.35)',
-    paddingVertical: 13,
-  },
-  lightningBtnText: { fontSize: 13, fontWeight: '700', color: '#F7C948' },
   list: { paddingBottom: 36 },
   sectionHeader: {
     flexDirection: 'row',
