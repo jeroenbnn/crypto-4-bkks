@@ -14,6 +14,7 @@ import {
   Linking,
   AppState,
   AppStateStatus,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -416,19 +417,14 @@ export default function WalletScreen() {
     return map;
   }, [allBalancesQuery.data]);
 
-  const aliasAddressesForHistory = useMemo(
-    () => addresses.filter((a) => !!a.alias),
-    [addresses]
-  );
-
   const historyQuery = useQuery({
-    queryKey: ['combined-history', WALLET_ID, aliasAddressesForHistory.map((a) => a.address).join(',')],
+    queryKey: ['combined-history', WALLET_ID, addresses.map((a) => a.address).join(',')],
     queryFn: async (): Promise<CombinedTx[]> => {
-      console.log(`[History] Fetching txs for ${aliasAddressesForHistory.length} alias addresses`);
+      console.log(`[History] Fetching txs for ${addresses.length} addresses`);
       const allTxs: CombinedTx[] = [];
 
       await Promise.all(
-        aliasAddressesForHistory.map(async (addrInfo) => {
+        addresses.map(async (addrInfo) => {
           const res = await fetch(`https://mempool.space/api/address/${addrInfo.address}/txs`);
           if (!res.ok) return;
           const txs = (await res.json()) as MempoolTx[];
@@ -459,7 +455,7 @@ export default function WalletScreen() {
         return bt - at;
       });
     },
-    enabled: activeTab === 'history' && aliasAddressesForHistory.length > 0,
+    enabled: activeTab === 'history' && addresses.length > 0,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
@@ -930,7 +926,7 @@ export default function WalletScreen() {
                   </View>
                   <View style={styles.historyStatCard}>
                     <Text style={styles.historyStatLabel}>ADRESSEN</Text>
-                    <Text style={styles.historyStatValue}>{aliasAddressesForHistory.length}</Text>
+                    <Text style={styles.historyStatValue}>{addresses.length}</Text>
                   </View>
                 </View>
               )}
@@ -953,6 +949,12 @@ export default function WalletScreen() {
               <View style={styles.centerState}>
                 <Text style={styles.emptyTitle}>Geen transacties</Text>
                 <Text style={styles.emptyText}>Er zijn nog geen transacties gevonden voor de adressen in deze wallet.</Text>
+              </View>
+            )}
+            {!historyQuery.isFetched && !historyQuery.isLoading && addresses.length === 0 && (
+              <View style={styles.centerState}>
+                <Text style={styles.emptyTitle}>Geen adressen</Text>
+                <Text style={styles.emptyText}>Voeg adressen toe om transacties te zien.</Text>
               </View>
             )}
             {(historyQuery.data?.length ?? 0) > 0 && (
@@ -1221,8 +1223,8 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   btcBadgeText: { fontSize: 18, color: '#FFF', fontWeight: '800' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: Colors.text, letterSpacing: -0.3 },
-  headerSubtitle: { fontSize: 11, color: Colors.textTertiary, marginTop: 1, flexShrink: 1 },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: Colors.text, letterSpacing: -0.3, includeFontPadding: false } as object,
+  headerSubtitle: { fontSize: 11, color: Colors.textTertiary, marginTop: 1, flexShrink: 1, includeFontPadding: false } as object,
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1281,12 +1283,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.text,
     letterSpacing: -0.5,
-  },
+    includeFontPadding: false,
+  } as object,
   walletValueBtc: {
     fontSize: 12,
     color: Colors.textSecondary,
     marginTop: 2,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
   },
   pendingRow: {
     flexDirection: 'row',
@@ -1298,7 +1301,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#D4A017',
     fontWeight: '600',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
   },
   mainAddrLabel: {
     fontSize: 10,
@@ -1518,7 +1521,7 @@ const styles = StyleSheet.create({
   addressText: {
     fontSize: 12,
     color: Colors.textTertiary,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
     letterSpacing: 0.2,
   },
   balanceCol: {
@@ -1558,7 +1561,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#D4A017',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
   },
   eurValueText: {
     fontSize: 11,
@@ -1649,8 +1652,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.text,
     letterSpacing: -0.2,
-    fontFamily: 'monospace',
-  },
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
+    includeFontPadding: false,
+  } as object,
   tabPageHeader: {
     paddingHorizontal: 20,
     paddingTop: 20,
@@ -1728,8 +1732,9 @@ const styles = StyleSheet.create({
   historyAmount: {
     fontSize: 13,
     fontWeight: '800',
-    fontFamily: 'monospace',
-  },
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
+    includeFontPadding: false,
+  } as object,
   historyAmountIn: { color: Colors.success },
   historyAmountOut: { color: Colors.error },
   historyDate: { fontSize: 10, color: Colors.textTertiary },
@@ -1796,14 +1801,14 @@ const styles = StyleSheet.create({
   betalenAddrText: {
     fontSize: 11,
     color: Colors.textTertiary,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
     marginBottom: 3,
   },
   betalenBalance: {
     fontSize: 13,
     fontWeight: '700',
     color: Colors.text,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
   },
   betalenCheck: {
     width: 28,
@@ -1885,12 +1890,12 @@ const styles = StyleSheet.create({
   ontvangenAddr: {
     fontSize: 11,
     color: Colors.textTertiary,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
   },
   ontvangenBalance: {
     fontSize: 11,
     fontWeight: '700',
     color: Colors.bitcoin,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
   },
 });
