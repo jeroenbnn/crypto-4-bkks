@@ -27,6 +27,10 @@ export default function RootLayout() {
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
             <Stack.Screen
+              name="address-history"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
               name="seed-phrase"
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />

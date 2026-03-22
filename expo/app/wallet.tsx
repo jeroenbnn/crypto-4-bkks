@@ -10,8 +10,10 @@ import {
   Animated,
   Pressable,
   TextInput,
+  ScrollView,
+  Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,14 +21,18 @@ import {
   Settings,
   Plus,
   ChevronRight,
-  ArrowRightLeft,
   Eye,
   EyeOff,
   TrendingUp,
   Globe,
   RotateCcw,
   ArrowUpRight,
+  ArrowDownLeft,
   Clock,
+  Home,
+  History,
+  QrCode,
+  ExternalLink,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useWallet } from '@/context/wallet';
@@ -46,8 +52,11 @@ import {
   sendConfirmedTransactionNotification,
   sendOutgoingConfirmedNotification,
 } from '@/utils/notifications';
+import { QRCodeDisplay } from '@/components/QRCodeDisplay';
 
 const LOW_UNUSED_THRESHOLD = 10;
+
+type TabName = 'start' | 'history' | 'betalen' | 'ontvangen';
 
 interface MempoolData {
   chain_stats: {
@@ -79,6 +88,7 @@ interface MempoolTx {
   status: {
     confirmed: boolean;
     block_height: number;
+    block_time?: number;
   };
   vin: MempoolTxVin[];
   vout: MempoolTxVout[];
@@ -89,6 +99,16 @@ interface AddressBalance {
   satoshi: number;
   pendingSat: number;
   isUsed: boolean;
+}
+
+interface CombinedTx {
+  txid: string;
+  address: string;
+  alias?: string;
+  label: string;
+  netSats: number;
+  confirmed: boolean;
+  blockTime?: number;
 }
 
 interface CoinbasePrice {
@@ -123,6 +143,12 @@ function formatEur(val: number): string {
   if (val >= 1000)
     return `€${val.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return `€${val.toFixed(2).replace('.', ',')}`;
+}
+
+function formatDate(ts?: number): string {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 async function fetchSingleAddressBalance(address: string, currentHeight: number): Promise<AddressBalance> {
@@ -173,19 +199,18 @@ interface AddressCardProps {
   storedBalance?: StoredBalance;
   btcEurPrice?: number;
   onPress: () => void;
+  onHistoryPress: () => void;
 }
 
-function AddressCard({ address, liveBalance, storedBalance, btcEurPrice, onPress }: AddressCardProps) {
+function AddressCard({ address, liveBalance, storedBalance, btcEurPrice, onPress, onHistoryPress }: AddressCardProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const onPressIn = useCallback(
-    () =>
-      Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start(),
+    () => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start(),
     [scaleAnim]
   );
   const onPressOut = useCallback(
-    () =>
-      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }).start(),
+    () => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }).start(),
     [scaleAnim]
   );
 
@@ -195,59 +220,111 @@ function AddressCard({ address, liveBalance, storedBalance, btcEurPrice, onPress
 
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <Pressable
-        style={styles.card}
-        onPress={onPress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        testID={`address-card-${address.index}`}
-      >
-        <View style={[styles.cardAccent, hasFunds && styles.cardAccentFunded]} />
-        <View style={styles.cardBody}>
-          <View style={styles.cardTopRow}>
-            <View style={styles.labelBadge}>
-              <Text style={styles.labelBadgeText}>{address.label}</Text>
-            </View>
-            {address.alias ? (
-              <View style={styles.aliasBadge}>
-                <Text style={styles.aliasBadgeText} numberOfLines={1}>{address.alias}</Text>
+      <View style={styles.card}>
+        <Pressable
+          style={styles.cardMain}
+          onPress={onPress}
+          onPressIn={onPressIn}
+          onPressOut={onPressOut}
+          testID={`address-card-${address.index}`}
+        >
+          <View style={[styles.cardAccent, hasFunds && styles.cardAccentFunded]} />
+          <View style={styles.cardBody}>
+            <View style={styles.cardTopRow}>
+              <View style={styles.labelBadge}>
+                <Text style={styles.labelBadgeText}>{address.label}</Text>
               </View>
-            ) : null}
-          </View>
-          <Text style={styles.addressText}>{formatAddress(address.address)}</Text>
-          {(confirmedSat > 0 || pendingSat > 0) && (
-            <View style={styles.balanceCol}>
-              {confirmedSat > 0 && (
-                <View style={styles.balanceRow}>
-                  <View style={styles.confirmedBadge}>
-                    <Text style={styles.confirmedBadgeText}>✓ {(confirmedSat / 1e8).toFixed(8)} BTC</Text>
-                  </View>
-                  {btcEurPrice ? (
-                    <Text style={styles.eurValueText}>
-                      ≈ {formatEur((confirmedSat / 1e8) * btcEurPrice)}
-                    </Text>
-                  ) : null}
+              {address.alias ? (
+                <View style={styles.aliasBadge}>
+                  <Text style={styles.aliasBadgeText} numberOfLines={1}>{address.alias}</Text>
                 </View>
-              )}
-              {pendingSat > 0 && (
-                <View style={styles.balanceRow}>
-                  <View style={styles.pendingBadge}>
-                    <Clock size={9} color="#D4A017" />
-                    <Text style={styles.pendingBadgeText}>({(pendingSat / 1e8).toFixed(8)} BTC)</Text>
-                  </View>
-                  {btcEurPrice ? (
-                    <Text style={styles.eurPendingText}>
-                      ≈ {formatEur((pendingSat / 1e8) * btcEurPrice)}
-                    </Text>
-                  ) : null}
-                </View>
-              )}
+              ) : null}
             </View>
-          )}
+            <Text style={styles.addressText}>{formatAddress(address.address)}</Text>
+            {(confirmedSat > 0 || pendingSat > 0) && (
+              <View style={styles.balanceCol}>
+                {confirmedSat > 0 && (
+                  <View style={styles.balanceRow}>
+                    <View style={styles.confirmedBadge}>
+                      <Text style={styles.confirmedBadgeText}>✓ {(confirmedSat / 1e8).toFixed(8)} BTC</Text>
+                    </View>
+                    {btcEurPrice ? (
+                      <Text style={styles.eurValueText}>
+                        ≈ {formatEur((confirmedSat / 1e8) * btcEurPrice)}
+                      </Text>
+                    ) : null}
+                  </View>
+                )}
+                {pendingSat > 0 && (
+                  <View style={styles.balanceRow}>
+                    <View style={styles.pendingBadge}>
+                      <Clock size={9} color="#D4A017" />
+                      <Text style={styles.pendingBadgeText}>({(pendingSat / 1e8).toFixed(8)} BTC)</Text>
+                    </View>
+                    {btcEurPrice ? (
+                      <Text style={styles.eurPendingText}>
+                        ≈ {formatEur((pendingSat / 1e8) * btcEurPrice)}
+                      </Text>
+                    ) : null}
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        </Pressable>
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={styles.historyIconBtn}
+            onPress={onHistoryPress}
+            testID={`history-btn-${address.index}`}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          >
+            <History size={15} color={Colors.textTertiary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.chevronBtn}
+            onPress={onPress}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+          >
+            <ChevronRight size={16} color={Colors.textTertiary} />
+          </TouchableOpacity>
         </View>
-        <ChevronRight size={16} color={Colors.textTertiary} style={{ marginRight: 14 }} />
-      </Pressable>
+      </View>
     </Animated.View>
+  );
+}
+
+type TabIconComponent = React.ComponentType<{ size: number; color: string }>;
+
+const TAB_ITEMS: { key: TabName; label: string; Icon: TabIconComponent }[] = [
+  { key: 'start', label: 'Start', Icon: Home },
+  { key: 'history', label: 'Geschiedenis', Icon: History },
+  { key: 'betalen', label: 'Betalen', Icon: ArrowUpRight },
+  { key: 'ontvangen', label: 'Ontvangen', Icon: QrCode },
+];
+
+function BottomTabBar({ active, onChange }: { active: TabName; onChange: (t: TabName) => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[tabStyles.bar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 10 }]}>
+      {TAB_ITEMS.map(({ key, label, Icon }) => {
+        const isActive = active === key;
+        return (
+          <TouchableOpacity
+            key={key}
+            style={tabStyles.item}
+            onPress={() => onChange(key)}
+            testID={`tab-${key}`}
+            activeOpacity={0.7}
+          >
+            <View style={[tabStyles.iconWrap, isActive && tabStyles.iconWrapActive]}>
+              <Icon size={20} color={isActive ? Colors.bitcoin : Colors.textTertiary} />
+            </View>
+            <Text style={[tabStyles.label, isActive && tabStyles.labelActive]}>{label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 }
 
@@ -262,6 +339,8 @@ export default function WalletScreen() {
   const { t, language, setLanguage } = useLanguage();
   const [hideNoAlias, setHideNoAlias] = useState(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<TabName>('start');
+  const [selectedFromAddr, setSelectedFromAddr] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const spinAnim = useRef(new Animated.Value(0)).current;
@@ -307,6 +386,59 @@ export default function WalletScreen() {
     enabled: true,
     staleTime: 3_600_000,
     refetchInterval: 10 * 60 * 1000,
+    retry: 1,
+  });
+
+  const liveBalanceMap = useMemo(() => {
+    const map = new Map<string, AddressBalance>();
+    if (allBalancesQuery.data) {
+      for (const b of allBalancesQuery.data) map.set(b.address, b);
+    }
+    return map;
+  }, [allBalancesQuery.data]);
+
+  const historyQuery = useQuery({
+    queryKey: ['combined-history', WALLET_ID, addresses.map((a) => a.address).join(',')],
+    queryFn: async (): Promise<CombinedTx[]> => {
+      const usedAddrs = allBalancesQuery.data?.filter((b) => b.isUsed && b.address !== MAIN_ADDRESS) ?? [];
+      console.log(`[History] Fetching txs for ${usedAddrs.length} used addresses`);
+      const addrInfoMap = new Map(addresses.map((a) => [a.address, a]));
+      const allTxs: CombinedTx[] = [];
+
+      await Promise.all(
+        usedAddrs.map(async (balData) => {
+          const addrInfo = addrInfoMap.get(balData.address);
+          const res = await fetch(`https://mempool.space/api/address/${balData.address}/txs`);
+          if (!res.ok) return;
+          const txs = (await res.json()) as MempoolTx[];
+          for (const tx of txs) {
+            const incoming = tx.vout
+              .filter((v) => v.scriptpubkey_address === balData.address)
+              .reduce((s, v) => s + v.value, 0);
+            const outgoing = tx.vin
+              .filter((v) => v.prevout?.scriptpubkey_address === balData.address)
+              .reduce((s, v) => s + (v.prevout?.value ?? 0), 0);
+            allTxs.push({
+              txid: tx.txid,
+              address: balData.address,
+              alias: addrInfo?.alias ?? undefined,
+              label: addrInfo?.label ?? balData.address.slice(0, 8),
+              netSats: incoming - outgoing,
+              confirmed: tx.status.confirmed,
+              blockTime: tx.status.block_time,
+            });
+          }
+        })
+      );
+
+      return allTxs.sort((a, b) => {
+        const at = a.blockTime ?? 9_999_999_999;
+        const bt = b.blockTime ?? 9_999_999_999;
+        return bt - at;
+      });
+    },
+    enabled: activeTab === 'history' && allBalancesQuery.isFetched,
+    staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 
@@ -388,14 +520,6 @@ export default function WalletScreen() {
   const totalPendingBtc = totalPendingSat / 1e8;
   const totalPendingEur = btcEurPrice && totalPendingSat > 0 ? totalPendingBtc * btcEurPrice : null;
 
-  const liveBalanceMap = useMemo(() => {
-    const map = new Map<string, AddressBalance>();
-    if (allBalancesQuery.data) {
-      for (const b of allBalancesQuery.data) map.set(b.address, b);
-    }
-    return map;
-  }, [allBalancesQuery.data]);
-
   const getStoredBalance = useCallback((addr: string): StoredBalance | undefined => {
     return storedBalances?.get(addr);
   }, [storedBalances]);
@@ -438,6 +562,15 @@ export default function WalletScreen() {
       return aliasMatch || addressMatch;
     });
   }, [baseAddresses, searchQuery]);
+
+  const addressesWithFunds = useMemo(() => {
+    return addresses.filter((a) => {
+      const balance = liveBalanceMap.get(a.address);
+      return (balance?.satoshi ?? 0) > 0;
+    });
+  }, [addresses, liveBalanceMap]);
+
+  const aliasAddresses = useMemo(() => addresses.filter((a) => !!a.alias), [addresses]);
 
   const handleExportAddresses = async () => {
     const lines = addresses.map((a) => `  "${a.address}",`).join('\n');
@@ -491,6 +624,10 @@ export default function WalletScreen() {
       {
         text: t.wallet.exportAddresses.replace('%d', String(addresses.length)),
         onPress: handleExportAddresses,
+      },
+      {
+        text: 'Sweep (consolideer fondsen)',
+        onPress: () => router.push('/sweep'),
       },
       {
         text: 'Verwijder ongebruikte adressen',
@@ -613,43 +750,6 @@ export default function WalletScreen() {
             <Text style={[styles.statValue, { color: Colors.success }]}>{t.wallet.mainnet}</Text>
           </View>
         </View>
-
-        <View style={styles.actionBtns}>
-          <TouchableOpacity
-            style={styles.addBtn}
-            onPress={() => addAddress()}
-            disabled={isAddingAddress || isRemovingAddresses}
-            activeOpacity={0.8}
-            testID="add-address-btn"
-          >
-            {isAddingAddress ? (
-              <ActivityIndicator size="small" color={Colors.bitcoin} />
-            ) : (
-              <>
-                <Plus size={17} color={Colors.bitcoin} />
-                <Text style={styles.addBtnText}>{t.wallet.addAddress}</Text>
-              </>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.sendBtn}
-            onPress={() => router.push('/send')}
-            activeOpacity={0.8}
-            testID="send-btn"
-          >
-            <ArrowUpRight size={17} color="#FFF" />
-            <Text style={styles.sendBtnText}>Betalen</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.sweepBtn}
-            onPress={() => router.push('/sweep')}
-            activeOpacity={0.8}
-            testID="sweep-btn"
-          >
-            <ArrowRightLeft size={17} color={Colors.bitcoin} />
-            <Text style={styles.sweepBtnText}>{t.wallet.sweepAll}</Text>
-          </TouchableOpacity>
-        </View>
       </LinearGradient>
 
       <View style={styles.searchContainer}>
@@ -686,6 +786,22 @@ export default function WalletScreen() {
         </View>
         <View style={styles.sectionActions}>
           <TouchableOpacity
+            style={styles.addBtnSmall}
+            onPress={() => addAddress()}
+            disabled={isAddingAddress || isRemovingAddresses}
+            activeOpacity={0.8}
+            testID="add-address-btn"
+          >
+            {isAddingAddress ? (
+              <ActivityIndicator size="small" color={Colors.bitcoin} />
+            ) : (
+              <>
+                <Plus size={13} color={Colors.bitcoin} />
+                <Text style={styles.addBtnSmallText}>Toevoegen</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.refreshBtn, isAnyFetching && styles.refreshBtnActive]}
             onPress={handleRefresh}
             disabled={isAnyFetching}
@@ -710,10 +826,8 @@ export default function WalletScreen() {
             ) : (
               <Eye size={13} color={Colors.textTertiary} />
             )}
-            <Text
-              style={[styles.filterToggleText, hideNoAlias && styles.filterToggleTextActive]}
-            >
-              {hideNoAlias ? 'Toon alle' : 'Enkel alias'}
+            <Text style={[styles.filterToggleText, hideNoAlias && styles.filterToggleTextActive]}>
+              {hideNoAlias ? 'Toon alle' : 'Alias'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -724,36 +838,295 @@ export default function WalletScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <FlatList
-          data={displayedAddresses}
-          keyExtractor={(item) => item.address}
-          renderItem={({ item }) => (
-            <AddressCard
-              address={item}
-              liveBalance={getLiveBalance(item.address)}
-              storedBalance={getStoredBalance(item.address)}
-              btcEurPrice={btcEurPrice ?? undefined}
-              onPress={() => router.push(`/address-detail?idx=${item.index}`)}
-            />
-          )}
-          contentContainerStyle={styles.list}
-          ListHeaderComponent={ListHeader}
-          ListFooterComponent={
-            displayedAddresses.length === 0 && searchQuery.length > 0 ? (
-              <View style={styles.noResults}>
-                <Text style={styles.noResultsText}>{t.wallet.noResults}</Text>
-                <Text style={styles.noResultsQuery}>"{searchQuery}"</Text>
+        {activeTab === 'start' && (
+          <FlatList
+            data={displayedAddresses}
+            keyExtractor={(item) => item.address}
+            renderItem={({ item }) => (
+              <AddressCard
+                address={item}
+                liveBalance={getLiveBalance(item.address)}
+                storedBalance={getStoredBalance(item.address)}
+                btcEurPrice={btcEurPrice ?? undefined}
+                onPress={() => router.push(`/address-detail?idx=${item.index}`)}
+                onHistoryPress={() =>
+                  router.push(
+                    `/address-history?addr=${item.address}&label=${encodeURIComponent(item.alias ?? item.label)}`
+                  )
+                }
+              />
+            )}
+            contentContainerStyle={styles.list}
+            ListHeaderComponent={ListHeader}
+            ListFooterComponent={
+              displayedAddresses.length === 0 && searchQuery.length > 0 ? (
+                <View style={styles.noResults}>
+                  <Text style={styles.noResultsText}>{t.wallet.noResults}</Text>
+                  <Text style={styles.noResultsQuery}>"{searchQuery}"</Text>
+                </View>
+              ) : (
+                <View style={styles.footer} />
+              )
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+
+        {activeTab === 'history' && (
+          <View style={{ flex: 1 }}>
+            <View style={styles.tabPageHeader}>
+              <Text style={styles.tabPageTitle}>Geschiedenis</Text>
+              <Text style={styles.tabPageSub}>Alle transacties</Text>
+            </View>
+            {historyQuery.isLoading && (
+              <View style={styles.centerState}>
+                <ActivityIndicator size="large" color={Colors.bitcoin} />
+                <Text style={styles.centerText}>Transacties laden…</Text>
+              </View>
+            )}
+            {historyQuery.isError && (
+              <View style={styles.centerState}>
+                <Text style={styles.emptyTitle}>Ophalen mislukt</Text>
+                <TouchableOpacity style={styles.retryBtn} onPress={() => void historyQuery.refetch()}>
+                  <Text style={styles.retryBtnText}>Opnieuw proberen</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {historyQuery.isFetched && !historyQuery.isLoading && (historyQuery.data?.length ?? 0) === 0 && (
+              <View style={styles.centerState}>
+                <Text style={styles.emptyTitle}>Geen transacties</Text>
+                <Text style={styles.emptyText}>Er zijn nog geen transacties gevonden voor de adressen in deze wallet.</Text>
+              </View>
+            )}
+            {(historyQuery.data?.length ?? 0) > 0 && (
+              <FlatList
+                data={historyQuery.data}
+                keyExtractor={(item, idx) => `${item.txid}-${item.address}-${idx}`}
+                contentContainerStyle={styles.historyList}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => {
+                  const isIn = item.netSats >= 0;
+                  return (
+                    <TouchableOpacity
+                      style={styles.historyCard}
+                      activeOpacity={0.75}
+                      onPress={() => void Linking.openURL(`https://mempool.space/tx/${item.txid}`)}
+                    >
+                      <View style={[styles.historyIconWrap, isIn ? styles.historyIconIn : styles.historyIconOut]}>
+                        {isIn ? (
+                          <ArrowDownLeft size={15} color={Colors.success} />
+                        ) : (
+                          <ArrowUpRight size={15} color={Colors.error} />
+                        )}
+                      </View>
+                      <View style={styles.historyBody}>
+                        <View style={styles.historyTopRow}>
+                          <Text style={styles.historyAlias} numberOfLines={1}>
+                            {item.alias ?? item.label}
+                          </Text>
+                          {item.confirmed ? (
+                            <View style={styles.smallConfirmedBadge}>
+                              <Text style={styles.smallConfirmedText}>✓</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.smallPendingBadge}>
+                              <Clock size={8} color="#D4A017" />
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[styles.historyAmount, isIn ? styles.historyAmountIn : styles.historyAmountOut]}>
+                          {isIn ? '+' : '−'}{(Math.abs(item.netSats) / 1e8).toFixed(8)} BTC
+                        </Text>
+                        {item.blockTime ? (
+                          <Text style={styles.historyDate}>{formatDate(item.blockTime)}</Text>
+                        ) : (
+                          <Text style={styles.historyDate}>Onbevestigd</Text>
+                        )}
+                      </View>
+                      <ExternalLink size={12} color={Colors.textTertiary} />
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            )}
+          </View>
+        )}
+
+        {activeTab === 'betalen' && (
+          <View style={{ flex: 1 }}>
+            <View style={styles.tabPageHeader}>
+              <Text style={styles.tabPageTitle}>Betalen</Text>
+              <Text style={styles.tabPageSub}>Kies een verzendadres</Text>
+            </View>
+            {addressesWithFunds.length === 0 ? (
+              <View style={styles.centerState}>
+                <Text style={styles.emptyTitle}>Geen saldo</Text>
+                <Text style={styles.emptyText}>Er zijn momenteel geen adressen met een bevestigd saldo.</Text>
               </View>
             ) : (
-              <View style={styles.footer} />
-            )
-          }
-          showsVerticalScrollIndicator={false}
-        />
+              <View style={{ flex: 1 }}>
+                <ScrollView contentContainerStyle={styles.betalenList} showsVerticalScrollIndicator={false}>
+                  <Text style={styles.betalenHint}>
+                    Selecteer het adres van waaruit je wilt betalen, of ga direct door voor een betaling vanuit de hele wallet.
+                  </Text>
+                  {addressesWithFunds.map((addr) => {
+                    const balance = liveBalanceMap.get(addr.address);
+                    const sat = balance?.satoshi ?? 0;
+                    const eur = btcEurPrice ? (sat / 1e8) * btcEurPrice : null;
+                    const isSelected = selectedFromAddr === addr.address;
+                    return (
+                      <TouchableOpacity
+                        key={addr.address}
+                        style={[styles.betalenCard, isSelected && styles.betalenCardSelected]}
+                        onPress={() => setSelectedFromAddr(isSelected ? null : addr.address)}
+                        activeOpacity={0.8}
+                        testID={`betalen-addr-${addr.index}`}
+                      >
+                        <View style={[styles.betalenAccent, isSelected && styles.betalenAccentSelected]} />
+                        <View style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 12 }}>
+                          <View style={styles.betalenCardTop}>
+                            <View style={styles.labelBadge}>
+                              <Text style={styles.labelBadgeText}>{addr.label}</Text>
+                            </View>
+                            {addr.alias ? (
+                              <View style={[styles.aliasBadge, isSelected && styles.aliasBadgeSelected]}>
+                                <Text style={[styles.aliasBadgeText, isSelected && { color: Colors.bitcoin }]} numberOfLines={1}>
+                                  {addr.alias}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          <Text style={styles.betalenAddrText}>{formatAddress(addr.address)}</Text>
+                          <Text style={[styles.betalenBalance, isSelected && { color: Colors.bitcoin }]}>
+                            {(sat / 1e8).toFixed(8)} BTC
+                            {eur !== null ? ` ≈ ${formatEur(eur)}` : ''}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <View style={styles.betalenCheck}>
+                            <Text style={styles.betalenCheckText}>✓</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <View style={styles.betalenFooter}>
+                  <TouchableOpacity
+                    style={styles.betalenBtn}
+                    onPress={() => router.push('/send')}
+                    activeOpacity={0.85}
+                    testID="betalen-proceed-btn"
+                  >
+                    <ArrowUpRight size={18} color="#FFF" />
+                    <Text style={styles.betalenBtnText}>
+                      {selectedFromAddr ? 'Betalen van geselecteerd adres' : 'Betalen vanuit wallet'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
+        {activeTab === 'ontvangen' && (
+          <View style={{ flex: 1 }}>
+            <View style={styles.tabPageHeader}>
+              <Text style={styles.tabPageTitle}>Ontvangen</Text>
+              <Text style={styles.tabPageSub}>Kies een ontvangstadres</Text>
+            </View>
+            {aliasAddresses.length === 0 ? (
+              <View style={styles.centerState}>
+                <Text style={styles.emptyTitle}>Geen adressen</Text>
+                <Text style={styles.emptyText}>Voeg adressen toe en geef ze een alias om ze hier te zien.</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={aliasAddresses}
+                keyExtractor={(item) => item.address}
+                contentContainerStyle={styles.ontvangenList}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => {
+                  const balance = liveBalanceMap.get(item.address);
+                  const sat = balance?.satoshi ?? 0;
+                  return (
+                    <TouchableOpacity
+                      style={styles.ontvangenCard}
+                      onPress={() => router.push(`/address-detail?idx=${item.index}`)}
+                      activeOpacity={0.8}
+                      testID={`ontvangen-addr-${item.index}`}
+                    >
+                      <View style={styles.ontvangenQrWrap}>
+                        <QRCodeDisplay
+                          value={`bitcoin:${item.address}`}
+                          size={64}
+                          bgColor="#FFFFFF"
+                          fgColor="#0A0A0F"
+                        />
+                      </View>
+                      <View style={styles.ontvangenBody}>
+                        <View style={styles.ontvangenTopRow}>
+                          <View style={styles.labelBadge}>
+                            <Text style={styles.labelBadgeText}>{item.label}</Text>
+                          </View>
+                          <Text style={styles.ontvangenAlias} numberOfLines={1}>{item.alias}</Text>
+                        </View>
+                        <Text style={styles.ontvangenAddr}>{formatAddress(item.address)}</Text>
+                        {sat > 0 && (
+                          <Text style={styles.ontvangenBalance}>
+                            {(sat / 1e8).toFixed(8)} BTC
+                          </Text>
+                        )}
+                      </View>
+                      <ChevronRight size={15} color={Colors.textTertiary} />
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            )}
+          </View>
+        )}
       </SafeAreaView>
+
+      <BottomTabBar active={activeTab} onChange={setActiveTab} />
     </View>
   );
 }
+
+const tabStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: 8,
+  },
+  item: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 3,
+    paddingTop: 2,
+  },
+  iconWrap: {
+    width: 40,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
+  iconWrapActive: {
+    backgroundColor: 'rgba(247,147,26,0.12)',
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.textTertiary,
+    letterSpacing: 0.2,
+  },
+  labelActive: {
+    color: Colors.bitcoin,
+  },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
@@ -929,53 +1302,7 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 10, color: Colors.textTertiary, fontWeight: '700', letterSpacing: 0.8 },
   statValue: { fontSize: 14, fontWeight: '800', color: Colors.text },
   statSep: { width: 1, backgroundColor: Colors.border, marginVertical: 4 },
-  actionBtns: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  addBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.bitcoin,
-    paddingVertical: 13,
-  },
-  addBtnText: { fontSize: 13, fontWeight: '700', color: Colors.bitcoin },
-  sendBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: Colors.bitcoin,
-    borderRadius: 14,
-    paddingVertical: 13,
-    shadowColor: Colors.bitcoin,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  sendBtnText: { fontSize: 13, fontWeight: '700', color: '#FFF' },
-  sweepBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    paddingVertical: 13,
-  },
-  sweepBtnText: { fontSize: 13, fontWeight: '700', color: Colors.bitcoin },
-  list: { paddingBottom: 36 },
+  list: { paddingBottom: 16 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -983,6 +1310,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginTop: 16,
     paddingHorizontal: 20,
+    flexWrap: 'wrap',
+    gap: 6,
   },
   sectionLabelRow: {
     flexDirection: 'row',
@@ -1004,6 +1333,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  addBtnSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: 'rgba(247,147,26,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(247,147,26,0.25)',
+  },
+  addBtnSmallText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.bitcoin,
   },
   refreshBtn: {
     flexDirection: 'row',
@@ -1062,6 +1407,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     overflow: 'hidden',
   },
+  cardMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   cardAccent: {
     width: 3,
     alignSelf: 'stretch',
@@ -1073,6 +1423,26 @@ const styles = StyleSheet.create({
   },
   cardBody: { flex: 1, padding: 14, paddingLeft: 13, gap: 5 },
   cardTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 6,
+    gap: 2,
+  },
+  historyIconBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  chevronBtn: {
+    width: 28,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   labelBadge: {
     backgroundColor: 'rgba(247,147,26,0.12)',
     paddingHorizontal: 9,
@@ -1183,5 +1553,247 @@ const styles = StyleSheet.create({
   noResultsQuery: {
     fontSize: 13,
     color: Colors.textTertiary,
+  },
+  tabPageHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  tabPageTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.text,
+    letterSpacing: -0.5,
+  },
+  tabPageSub: {
+    fontSize: 12,
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: 32,
+  },
+  centerText: { fontSize: 14, color: Colors.textSecondary },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
+  retryBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  retryBtnText: { fontSize: 14, fontWeight: '700', color: Colors.bitcoin },
+  historyList: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 16,
+  },
+  historyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  historyIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyIconIn: { backgroundColor: 'rgba(52,199,89,0.12)' },
+  historyIconOut: { backgroundColor: 'rgba(255,59,48,0.12)' },
+  historyBody: { flex: 1, gap: 2 },
+  historyTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  historyAlias: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.text,
+    flex: 1,
+  },
+  historyAmount: {
+    fontSize: 13,
+    fontWeight: '800',
+    fontFamily: 'monospace',
+  },
+  historyAmountIn: { color: Colors.success },
+  historyAmountOut: { color: Colors.error },
+  historyDate: { fontSize: 10, color: Colors.textTertiary },
+  smallConfirmedBadge: {
+    backgroundColor: 'rgba(52,199,89,0.12)',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  smallConfirmedText: { fontSize: 9, fontWeight: '800', color: Colors.success },
+  smallPendingBadge: {
+    backgroundColor: 'rgba(212,160,23,0.12)',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  betalenList: {
+    padding: 16,
+    paddingBottom: 100,
+    gap: 10,
+  },
+  betalenHint: {
+    fontSize: 13,
+    color: Colors.textTertiary,
+    lineHeight: 19,
+    marginBottom: 6,
+  },
+  betalenCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  betalenCardSelected: {
+    borderColor: Colors.bitcoin,
+    backgroundColor: 'rgba(247,147,26,0.06)',
+  },
+  betalenAccent: {
+    width: 3,
+    alignSelf: 'stretch',
+    backgroundColor: Colors.bitcoin,
+    opacity: 0.3,
+  },
+  betalenAccentSelected: {
+    opacity: 1,
+  },
+  betalenCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 4,
+  },
+  aliasBadgeSelected: {
+    backgroundColor: 'rgba(247,147,26,0.15)',
+  },
+  betalenAddrText: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    fontFamily: 'monospace',
+    marginBottom: 3,
+  },
+  betalenBalance: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.text,
+    fontFamily: 'monospace',
+  },
+  betalenCheck: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.bitcoin,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  betalenCheckText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFF',
+  },
+  betalenFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  betalenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.bitcoin,
+    borderRadius: 16,
+    paddingVertical: 16,
+    shadowColor: Colors.bitcoin,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  betalenBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFF',
+    letterSpacing: -0.2,
+  },
+  ontvangenList: {
+    padding: 16,
+    gap: 10,
+    paddingBottom: 16,
+  },
+  ontvangenCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 12,
+    gap: 12,
+  },
+  ontvangenQrWrap: {
+    borderRadius: 10,
+    overflow: 'hidden',
+    padding: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  ontvangenBody: { flex: 1, gap: 4 },
+  ontvangenTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ontvangenAlias: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.text,
+    flex: 1,
+  },
+  ontvangenAddr: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    fontFamily: 'monospace',
+  },
+  ontvangenBalance: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.bitcoin,
+    fontFamily: 'monospace',
   },
 });
