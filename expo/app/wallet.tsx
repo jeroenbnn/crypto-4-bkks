@@ -344,6 +344,7 @@ export default function WalletScreen() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabName>('start');
   const [selectedFromAddr, setSelectedFromAddr] = useState<string | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'in' | 'out'>('all');
   const queryClient = useQueryClient();
 
   const spinAnim = useRef(new Animated.Value(0)).current;
@@ -545,6 +546,13 @@ export default function WalletScreen() {
   const getLiveBalance = useCallback((addr: string): AddressBalance | undefined => {
     return liveBalanceMap.get(addr);
   }, [liveBalanceMap]);
+
+  const filteredHistoryData = useMemo(() => {
+    const data = historyQuery.data ?? [];
+    if (historyFilter === 'in') return data.filter((tx) => tx.netSats >= 0);
+    if (historyFilter === 'out') return data.filter((tx) => tx.netSats < 0);
+    return data;
+  }, [historyQuery.data, historyFilter]);
 
   const isAnyFetching = allBalancesQuery.isFetching;
 
@@ -931,6 +939,33 @@ export default function WalletScreen() {
                 </View>
               )}
             </View>
+            {historyQuery.isFetched && !historyQuery.isLoading && (historyQuery.data?.length ?? 0) > 0 && (
+              <View style={styles.historyFilterRow}>
+                <TouchableOpacity
+                  style={[styles.historyFilterBtn, historyFilter === 'all' && styles.historyFilterBtnActive]}
+                  onPress={() => setHistoryFilter('all')}
+                  testID="history-filter-all"
+                >
+                  <Text style={[styles.historyFilterBtnText, historyFilter === 'all' && styles.historyFilterBtnTextActive]}>Alle</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.historyFilterBtn, historyFilter === 'in' && styles.historyFilterBtnActiveIn]}
+                  onPress={() => setHistoryFilter('in')}
+                  testID="history-filter-in"
+                >
+                  <ArrowDownLeft size={13} color={historyFilter === 'in' ? Colors.success : Colors.textSecondary} />
+                  <Text style={[styles.historyFilterBtnText, historyFilter === 'in' && styles.historyFilterBtnTextIn]}>Ontvangen</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.historyFilterBtn, historyFilter === 'out' && styles.historyFilterBtnActiveOut]}
+                  onPress={() => setHistoryFilter('out')}
+                  testID="history-filter-out"
+                >
+                  <ArrowUpRight size={13} color={historyFilter === 'out' ? Colors.error : Colors.textSecondary} />
+                  <Text style={[styles.historyFilterBtnText, historyFilter === 'out' && styles.historyFilterBtnTextOut]}>Verzonden</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {historyQuery.isLoading && (
               <View style={styles.centerState}>
                 <ActivityIndicator size="large" color={Colors.bitcoin} />
@@ -957,9 +992,15 @@ export default function WalletScreen() {
                 <Text style={styles.emptyText}>Voeg adressen toe om transacties te zien.</Text>
               </View>
             )}
-            {(historyQuery.data?.length ?? 0) > 0 && (
+            {filteredHistoryData.length === 0 && (historyQuery.data?.length ?? 0) > 0 && !historyQuery.isLoading && (
+              <View style={styles.centerState}>
+                <Text style={styles.emptyTitle}>Geen resultaten</Text>
+                <Text style={styles.emptyText}>Er zijn geen {historyFilter === 'in' ? 'inkomende' : 'uitgaande'} transacties gevonden.</Text>
+              </View>
+            )}
+            {filteredHistoryData.length > 0 && (
               <FlatList
-                data={historyQuery.data}
+                data={filteredHistoryData}
                 keyExtractor={(item, idx) => `${item.txid}-${item.address}-${idx}`}
                 contentContainerStyle={styles.historyList}
                 showsVerticalScrollIndicator={false}
@@ -1621,6 +1662,42 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textTertiary,
   },
+  historyFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  historyFilterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  historyFilterBtnActive: {
+    backgroundColor: Colors.bitcoin,
+    borderColor: Colors.bitcoin,
+  },
+  historyFilterBtnActiveIn: {
+    backgroundColor: 'rgba(52,199,89,0.12)',
+    borderColor: 'rgba(52,199,89,0.35)',
+  },
+  historyFilterBtnActiveOut: {
+    backgroundColor: 'rgba(255,59,48,0.12)',
+    borderColor: 'rgba(255,59,48,0.35)',
+  },
+  historyFilterBtnText: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary },
+  historyFilterBtnTextActive: { color: '#FFF' },
+  historyFilterBtnTextIn: { color: Colors.success },
+  historyFilterBtnTextOut: { color: Colors.error },
   historyPageHeader: {
     paddingHorizontal: 20,
     paddingTop: 20,
