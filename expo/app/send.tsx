@@ -188,30 +188,33 @@ export default function SendScreen() {
     if (text) setDestination(text.trim());
   };
 
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <View style={styles.headerLeft}>
+        <View style={styles.headerIcon}>
+          <ArrowUpRight size={18} color="#FFF" strokeWidth={2.5} />
+        </View>
+        <View>
+          <Text style={styles.headerTitle}>Betalen</Text>
+          <Text style={styles.headerSub}>Vanuit BKKS Wallet</Text>
+        </View>
+      </View>
+      {step !== 'broadcasting' && (
+        <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()} testID="close-send-btn">
+          <X size={17} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <View style={styles.headerIcon}>
-              <ArrowUpRight size={18} color="#FFF" strokeWidth={2.5} />
-            </View>
-            <View>
-              <Text style={styles.headerTitle}>Betalen</Text>
-              <Text style={styles.headerSub}>Vanuit BKKS Wallet</Text>
-            </View>
-          </View>
-          {step !== 'broadcasting' && (
-            <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()} testID="close-send-btn">
-              <X size={17} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
-
         <Animated.View style={[{ flex: 1 }, { opacity: fadeAnim }]}>
           {(step === 'setup' || step === 'loading') && (
             <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
               <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+                {renderHeader()}
 
                 <View style={styles.fromCard}>
                   <Wallet size={14} color={Colors.bitcoin} />
@@ -331,6 +334,8 @@ export default function SendScreen() {
 
           {step === 'confirm' && estimate && (
             <ScrollView contentContainerStyle={styles.content}>
+              {renderHeader()}
+
               <View style={styles.summaryHero}>
                 <Text style={styles.summaryHeroLabel}>TE BETALEN</Text>
                 <Text style={styles.summaryHeroAmount}>{formatBtc(estimate.sendSats)}</Text>
@@ -408,15 +413,20 @@ export default function SendScreen() {
           )}
 
           {step === 'broadcasting' && (
-            <View style={styles.centerState}>
-              <ActivityIndicator size="large" color={Colors.bitcoin} />
-              <Text style={styles.centerTitle}>Versturen…</Text>
-              <Text style={styles.centerSub}>Transactie wordt ondertekend en verzonden naar het Bitcoin-netwerk</Text>
-            </View>
+            <ScrollView contentContainerStyle={styles.broadcastingContent}>
+              {renderHeader()}
+              <View style={styles.centerState}>
+                <ActivityIndicator size="large" color={Colors.bitcoin} />
+                <Text style={styles.centerTitle}>Versturen…</Text>
+                <Text style={styles.centerSub}>Transactie wordt ondertekend en verzonden naar het Bitcoin-netwerk</Text>
+              </View>
+            </ScrollView>
           )}
 
           {step === 'done' && (
             <ScrollView contentContainerStyle={styles.content}>
+              {renderHeader()}
+
               <Animated.View style={[styles.successHero, { transform: [{ scale: successScale }] }]}>
                 <CheckCircle size={64} color={Colors.success} strokeWidth={1.5} />
                 <Text style={styles.successTitle}>Betaling Geslaagd!</Text>
@@ -472,10 +482,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    marginBottom: 6,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerIcon: {
@@ -516,6 +526,7 @@ const styles = StyleSheet.create({
   },
   fromText: { fontSize: 13, color: Colors.textSecondary, flex: 1 },
   content: { padding: 20, gap: 14, paddingBottom: 40 },
+  broadcastingContent: { padding: 20, flexGrow: 1 },
   sectionCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
@@ -694,6 +705,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 20,
     paddingHorizontal: 40,
+    paddingTop: 80,
   },
   centerTitle: { fontSize: 22, fontWeight: '800', color: Colors.text, letterSpacing: -0.5 },
   centerSub: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
