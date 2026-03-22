@@ -260,7 +260,7 @@ export default function WalletScreen() {
   const { addresses, addAddress, removeAddresses, resetWallet, isAddingAddress, isRemovingAddresses, hasWallet, initialized } =
     useWallet();
   const { t, language, setLanguage } = useLanguage();
-  const [hideNoAlias, setHideNoAlias] = useState(false);
+  const [hideNoAlias, setHideNoAlias] = useState(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const queryClient = useQueryClient();
 
