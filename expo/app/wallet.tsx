@@ -12,6 +12,8 @@ import {
   TextInput,
   ScrollView,
   Linking,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -347,6 +349,7 @@ export default function WalletScreen() {
   const notificationSentRef = useRef(false);
   const lastSupabaseUpdateRef = useRef<number>(0);
   const prevBalancesRef = useRef<Map<string, { satoshi: number; pendingSat: number }>>(new Map());
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     if (initialized && !hasWallet) {
@@ -357,6 +360,21 @@ export default function WalletScreen() {
   useEffect(() => {
     void requestNotificationPermissions();
   }, []);
+
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = nextState;
+      if ((prev === 'background' || prev === 'inactive') && nextState === 'active') {
+        console.log('[AppState] Foreground detected — refetching balances');
+        notificationSentRef.current = false;
+        lastSupabaseUpdateRef.current = 0;
+        void queryClient.refetchQueries({ queryKey: ['all-address-balances', WALLET_ID] });
+      }
+    };
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [queryClient]);
 
   const { data: btcEurPrice } = useBtcEurPrice();
 
@@ -384,7 +402,8 @@ export default function WalletScreen() {
       return results;
     },
     enabled: true,
-    staleTime: 3_600_000,
+    staleTime: 0,
+    refetchOnMount: true,
     refetchInterval: 10 * 60 * 1000,
     retry: 1,
   });
@@ -397,32 +416,35 @@ export default function WalletScreen() {
     return map;
   }, [allBalancesQuery.data]);
 
+  const aliasAddressesForHistory = useMemo(
+    () => addresses.filter((a) => !!a.alias),
+    [addresses]
+  );
+
   const historyQuery = useQuery({
-    queryKey: ['combined-history', WALLET_ID, addresses.map((a) => a.address).join(',')],
+    queryKey: ['combined-history', WALLET_ID, aliasAddressesForHistory.map((a) => a.address).join(',')],
     queryFn: async (): Promise<CombinedTx[]> => {
-      const usedAddrs = allBalancesQuery.data?.filter((b) => b.isUsed && b.address !== MAIN_ADDRESS) ?? [];
-      console.log(`[History] Fetching txs for ${usedAddrs.length} used addresses`);
-      const addrInfoMap = new Map(addresses.map((a) => [a.address, a]));
+      console.log(`[History] Fetching txs for ${aliasAddressesForHistory.length} alias addresses`);
       const allTxs: CombinedTx[] = [];
 
       await Promise.all(
-        usedAddrs.map(async (balData) => {
-          const addrInfo = addrInfoMap.get(balData.address);
-          const res = await fetch(`https://mempool.space/api/address/${balData.address}/txs`);
+        aliasAddressesForHistory.map(async (addrInfo) => {
+          const res = await fetch(`https://mempool.space/api/address/${addrInfo.address}/txs`);
           if (!res.ok) return;
           const txs = (await res.json()) as MempoolTx[];
           for (const tx of txs) {
             const incoming = tx.vout
-              .filter((v) => v.scriptpubkey_address === balData.address)
+              .filter((v) => v.scriptpubkey_address === addrInfo.address)
               .reduce((s, v) => s + v.value, 0);
             const outgoing = tx.vin
-              .filter((v) => v.prevout?.scriptpubkey_address === balData.address)
+              .filter((v) => v.prevout?.scriptpubkey_address === addrInfo.address)
               .reduce((s, v) => s + (v.prevout?.value ?? 0), 0);
+            if (incoming === 0 && outgoing === 0) continue;
             allTxs.push({
               txid: tx.txid,
-              address: balData.address,
-              alias: addrInfo?.alias ?? undefined,
-              label: addrInfo?.label ?? balData.address.slice(0, 8),
+              address: addrInfo.address,
+              alias: addrInfo.alias ?? undefined,
+              label: addrInfo.label,
               netSats: incoming - outgoing,
               confirmed: tx.status.confirmed,
               blockTime: tx.status.block_time,
@@ -437,7 +459,7 @@ export default function WalletScreen() {
         return bt - at;
       });
     },
-    enabled: activeTab === 'history' && allBalancesQuery.isFetched,
+    enabled: activeTab === 'history' && aliasAddressesForHistory.length > 0,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
@@ -874,9 +896,44 @@ export default function WalletScreen() {
 
         {activeTab === 'history' && (
           <View style={{ flex: 1 }}>
-            <View style={styles.tabPageHeader}>
-              <Text style={styles.tabPageTitle}>Geschiedenis</Text>
-              <Text style={styles.tabPageSub}>Alle transacties</Text>
+            <View style={styles.historyPageHeader}>
+              <View style={styles.historyPageTitleRow}>
+                <View>
+                  <Text style={styles.tabPageTitle}>Geschiedenis</Text>
+                  <Text style={styles.tabPageSub}>Alle transacties</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.refreshBtn, historyQuery.isFetching && styles.refreshBtnActive]}
+                  onPress={() => void historyQuery.refetch()}
+                  disabled={historyQuery.isFetching}
+                  activeOpacity={0.7}
+                >
+                  <Animated.View style={{ transform: [{ rotate: historyQuery.isFetching ? spinInterpolate : '0deg' }] }}>
+                    <RotateCcw size={13} color={historyQuery.isFetching ? Colors.bitcoin : Colors.textTertiary} />
+                  </Animated.View>
+                  <Text style={[styles.refreshBtnText, historyQuery.isFetching && styles.refreshBtnTextActive]}>
+                    {historyQuery.isFetching ? 'Laden…' : 'Vernieuwen'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {allBalancesQuery.data && (
+                <View style={styles.historyStatsRow}>
+                  <View style={styles.historyStatCard}>
+                    <Text style={styles.historyStatLabel}>TOTAAL BTC</Text>
+                    <Text style={styles.historyStatValue}>{formatBtc(totalBtc)}</Text>
+                  </View>
+                  <View style={styles.historyStatCard}>
+                    <Text style={styles.historyStatLabel}>TOTAAL EUR</Text>
+                    <Text style={[styles.historyStatValue, { color: Colors.bitcoin }]}>
+                      {totalEur !== null ? formatEur(totalEur) : '—'}
+                    </Text>
+                  </View>
+                  <View style={styles.historyStatCard}>
+                    <Text style={styles.historyStatLabel}>ADRESSEN</Text>
+                    <Text style={styles.historyStatValue}>{aliasAddressesForHistory.length}</Text>
+                  </View>
+                </View>
+              )}
             </View>
             {historyQuery.isLoading && (
               <View style={styles.centerState}>
@@ -1553,6 +1610,46 @@ const styles = StyleSheet.create({
   noResultsQuery: {
     fontSize: 13,
     color: Colors.textTertiary,
+  },
+  historyPageHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    gap: 14,
+  },
+  historyPageTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  historyStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  historyStatCard: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    gap: 3,
+  },
+  historyStatLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    letterSpacing: 0.8,
+  },
+  historyStatValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.text,
+    letterSpacing: -0.2,
+    fontFamily: 'monospace',
   },
   tabPageHeader: {
     paddingHorizontal: 20,
