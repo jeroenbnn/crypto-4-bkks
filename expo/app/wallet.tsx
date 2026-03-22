@@ -44,6 +44,7 @@ import {
   sendLowUnusedAddressNotification,
   sendPendingTransactionNotification,
   sendConfirmedTransactionNotification,
+  sendOutgoingConfirmedNotification,
 } from '@/utils/notifications';
 
 const LOW_UNUSED_THRESHOLD = 10;
@@ -305,7 +306,7 @@ export default function WalletScreen() {
     },
     enabled: true,
     staleTime: 3_600_000,
-    refetchInterval: 3_600_000,
+    refetchInterval: 10 * 60 * 1000,
     retry: 1,
   });
 
@@ -348,8 +349,13 @@ export default function WalletScreen() {
         }
         if (old.pendingSat > 0 && pendingSat === 0 && satoshi > old.satoshi) {
           const gained = satoshi - old.satoshi;
-          console.log(`[Notifications] Tx confirmed on ${address}: +${gained} sat`);
+          console.log(`[Notifications] Incoming tx confirmed on ${address}: +${gained} sat`);
           void sendConfirmedTransactionNotification(address, gained, language);
+        }
+        if (old.satoshi > 0 && satoshi < old.satoshi && pendingSat === 0 && old.pendingSat === 0) {
+          const spent = old.satoshi - satoshi;
+          console.log(`[Notifications] Outgoing tx confirmed on ${address}: -${spent} sat`);
+          void sendOutgoingConfirmedNotification(address, spent, language);
         }
       }
     }

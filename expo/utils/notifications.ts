@@ -95,6 +95,42 @@ export async function sendConfirmedTransactionNotification(
   }
 }
 
+const OUTGOING_CONFIRMED_MESSAGES: Record<string, (address: string, btc: string) => { title: string; body: string }> = {
+  nl: (address, btc) => ({
+    title: '✅ Uitgaande betaling voltooid',
+    body: `${btc} BTC verstuurd vanaf ${address}`,
+  }),
+  fr: (address, btc) => ({
+    title: '✅ Paiement sortant terminé',
+    body: `${btc} BTC envoyé depuis ${address}`,
+  }),
+  en: (address, btc) => ({
+    title: '✅ Outgoing payment completed',
+    body: `${btc} BTC sent from ${address}`,
+  }),
+};
+
+export async function sendOutgoingConfirmedNotification(
+  address: string,
+  satoshi: number,
+  lang: string
+): Promise<void> {
+  if (Platform.OS === 'web') return;
+  const msgFn = OUTGOING_CONFIRMED_MESSAGES[lang] ?? OUTGOING_CONFIRMED_MESSAGES.nl;
+  const short = `${address.slice(0, 6)}…${address.slice(-6)}`;
+  const btc = (satoshi / 1e8).toFixed(8);
+  const msg = msgFn(short, btc);
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: { title: msg.title, body: msg.body, sound: true },
+      trigger: null,
+    });
+    console.log(`[Notifications] Sent outgoing confirmed notification for ${address}`);
+  } catch (e) {
+    console.error('[Notifications] sendOutgoingConfirmedNotification error:', e);
+  }
+}
+
 const LOW_UNUSED_MESSAGES: Record<string, (count: number) => { title: string; body: string }> = {
   nl: (count) => ({
     title: 'Bitcoin Wallet',
