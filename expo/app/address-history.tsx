@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -100,6 +100,8 @@ export default function AddressHistoryScreen() {
     retry: 2,
   });
 
+  const [filter, setFilter] = useState<'all' | 'in' | 'out'>('all');
+
   const sortedTxs = useMemo(() => {
     if (!txQuery.data) return [];
     return [...txQuery.data].sort((a, b) => {
@@ -108,6 +110,12 @@ export default function AddressHistoryScreen() {
       return bt - at;
     });
   }, [txQuery.data]);
+
+  const filteredTxs = useMemo(() => {
+    if (filter === 'in') return sortedTxs.filter((tx) => tx.netSats >= 0);
+    if (filter === 'out') return sortedTxs.filter((tx) => tx.netSats < 0);
+    return sortedTxs;
+  }, [sortedTxs, filter]);
 
   const displayLabel = label ?? formatAddress(addr ?? '');
 
@@ -145,6 +153,34 @@ export default function AddressHistoryScreen() {
           </View>
         )}
 
+        {txQuery.isFetched && !txQuery.isLoading && (
+          <View style={styles.filterRow}>
+            <TouchableOpacity
+              style={[styles.filterBtn, filter === 'all' && styles.filterBtnActive]}
+              onPress={() => setFilter('all')}
+              testID="filter-all"
+            >
+              <Text style={[styles.filterBtnText, filter === 'all' && styles.filterBtnTextActive]}>Alle</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterBtn, filter === 'in' && styles.filterBtnActiveIn]}
+              onPress={() => setFilter('in')}
+              testID="filter-in"
+            >
+              <ArrowDownLeft size={13} color={filter === 'in' ? Colors.success : Colors.textSecondary} />
+              <Text style={[styles.filterBtnText, filter === 'in' && styles.filterBtnTextIn]}>Ontvangen</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterBtn, filter === 'out' && styles.filterBtnActiveOut]}
+              onPress={() => setFilter('out')}
+              testID="filter-out"
+            >
+              <ArrowUpRight size={13} color={filter === 'out' ? Colors.error : Colors.textSecondary} />
+              <Text style={[styles.filterBtnText, filter === 'out' && styles.filterBtnTextOut]}>Verzonden</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {txQuery.isFetched && sortedTxs.length === 0 && (
           <View style={styles.centerState}>
             <Text style={styles.emptyTitle}>Geen transacties</Text>
@@ -152,16 +188,23 @@ export default function AddressHistoryScreen() {
           </View>
         )}
 
-        {sortedTxs.length > 0 && (
+        {filteredTxs.length === 0 && sortedTxs.length > 0 && (
+          <View style={styles.centerState}>
+            <Text style={styles.emptyTitle}>Geen resultaten</Text>
+            <Text style={styles.emptyText}>Er zijn geen {filter === 'in' ? 'inkomende' : 'uitgaande'} transacties voor dit adres.</Text>
+          </View>
+        )}
+
+        {filteredTxs.length > 0 && (
           <FlatList
-            data={sortedTxs}
+            data={filteredTxs}
             keyExtractor={(item) => item.txid}
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
             ListHeaderComponent={
               <View style={styles.listHeader}>
                 <Text style={styles.listHeaderLabel}>
-                  {sortedTxs.length} transactie{sortedTxs.length !== 1 ? 's' : ''}
+                  {filteredTxs.length} transactie{filteredTxs.length !== 1 ? 's' : ''}
                 </Text>
               </View>
             }
@@ -351,4 +394,40 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(212,160,23,0.2)',
   },
   pendingBadgeText: { fontSize: 10, fontWeight: '600', color: '#D4A017' },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  filterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  filterBtnActive: {
+    backgroundColor: Colors.bitcoin,
+    borderColor: Colors.bitcoin,
+  },
+  filterBtnActiveIn: {
+    backgroundColor: 'rgba(52,199,89,0.12)',
+    borderColor: 'rgba(52,199,89,0.35)',
+  },
+  filterBtnActiveOut: {
+    backgroundColor: 'rgba(255,59,48,0.12)',
+    borderColor: 'rgba(255,59,48,0.35)',
+  },
+  filterBtnText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  filterBtnTextActive: { color: '#FFF' },
+  filterBtnTextIn: { color: Colors.success },
+  filterBtnTextOut: { color: Colors.error },
 });
