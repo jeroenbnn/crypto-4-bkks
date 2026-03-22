@@ -1023,8 +1023,7 @@ export default function WalletScreen() {
                 <Text style={styles.emptyText}>Er zijn momenteel geen adressen met een bevestigd saldo.</Text>
               </View>
             ) : (
-              <View style={{ flex: 1 }}>
-                <ScrollView contentContainerStyle={styles.betalenList} showsVerticalScrollIndicator={false}>
+              <ScrollView contentContainerStyle={styles.betalenList} showsVerticalScrollIndicator={false}>
                   <Text style={styles.betalenHint}>
                     Selecteer het adres van waaruit je wilt betalen, of ga direct door voor een betaling vanuit de hele wallet.
                   </Text>
@@ -1069,21 +1068,29 @@ export default function WalletScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
-                <View style={styles.betalenFooter}>
-                  <TouchableOpacity
-                    style={styles.betalenBtn}
-                    onPress={() => router.push('/send')}
-                    activeOpacity={0.85}
-                    testID="betalen-proceed-btn"
-                  >
-                    <ArrowUpRight size={18} color="#FFF" />
-                    <Text style={styles.betalenBtnText}>
-                      {selectedFromAddr ? 'Betalen van geselecteerd adres' : 'Betalen vanuit wallet'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+                  <View style={styles.betalenActions}>
+                    <TouchableOpacity
+                      style={styles.betalenBtn}
+                      onPress={() => router.push('/send')}
+                      activeOpacity={0.85}
+                      testID="betalen-proceed-btn"
+                    >
+                      <ArrowUpRight size={18} color="#FFF" />
+                      <Text style={styles.betalenBtnText}>
+                        {selectedFromAddr ? 'Betalen van geselecteerd adres' : 'Betalen vanuit wallet'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.sweepBtn}
+                      onPress={() => router.push('/sweep')}
+                      activeOpacity={0.85}
+                      testID="sweep-btn"
+                    >
+                      <ArrowUpRight size={16} color={Colors.bitcoin} />
+                      <Text style={styles.sweepBtnText}>Consolideer naar 1 adres</Text>
+                    </TouchableOpacity>
+                  </View>
+              </ScrollView>
             )}
           </View>
         )}
@@ -1757,7 +1764,7 @@ const styles = StyleSheet.create({
   },
   betalenList: {
     padding: 16,
-    paddingBottom: 100,
+    paddingBottom: 24,
     gap: 10,
   },
   betalenHint: {
@@ -1824,15 +1831,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFF',
   },
-  betalenFooter: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 16,
-    backgroundColor: Colors.background,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
+  betalenActions: {
+    gap: 10,
+    marginTop: 6,
   },
   betalenBtn: {
     flexDirection: 'row',
@@ -1852,6 +1853,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#FFF',
+    letterSpacing: -0.2,
+  },
+  sweepBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(247,147,26,0.1)',
+    borderRadius: 16,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(247,147,26,0.3)',
+  },
+  sweepBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.bitcoin,
     letterSpacing: -0.2,
   },
   ontvangenList: {
